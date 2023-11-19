@@ -1,0 +1,81 @@
+// Package rasterm provides a simple way to encode images as terminal graphics,
+// supporting Kitty, iTerm, and Sixel.
+package rasterm
+
+import (
+	"fmt"
+	"image"
+	"io"
+)
+
+// TermType is a terminal graphics type.
+type TermType uint8
+
+// Term types.
+const (
+	Default TermType = ^TermType(0)
+	Kitty   TermType = iota
+	ITerm
+	Sixel
+)
+
+// String satisfies the [fmt.Stringer] interface.
+func (typ TermType) String() string {
+	if r, ok := encoders[typ]; ok {
+		return r.String()
+	}
+	return fmt.Sprintf("TermType(%d)", uint8(typ))
+}
+
+// Available returns true when the term type is available.
+func (typ TermType) Available() bool {
+	if r, ok := encoders[typ]; ok {
+		return r.Available()
+	}
+	return false
+}
+
+// Encode encodes the image to w.
+func (typ TermType) Encode(w io.Writer, img image.Image) error {
+	if r, ok := encoders[typ]; ok {
+		return r.Encode(w, img)
+	}
+	return ErrTermGraphicsNotAvailable
+}
+
+// encoders are the registered encoders.
+var encoders map[TermType]Encoder
+
+func init() {
+	kitty := NewKittyEncoder()
+	iterm := NewITermEncoder()
+	sixel := NewSixelEncoder()
+	encoders = map[TermType]Encoder{
+		Kitty:   kitty,
+		ITerm:   iterm,
+		Sixel:   sixel,
+		Default: NewDefaultEncoder(kitty, iterm, sixel),
+	}
+}
+
+// Encode encodes the image to w.
+func Encode(w io.Writer, img image.Image) error {
+	return Default.Encode(w, img)
+}
+
+// Error is an error.
+type Error string
+
+// Error satisfies the [error] interface.
+func (err Error) Error() string {
+	return string(err)
+}
+
+const (
+	// ErrTermGraphicsNotAvailable is the term graphics not available error.
+	ErrTermGraphicsNotAvailable Error = "term graphics not available"
+	// ErrNonTTY is the non tty error.
+	ErrNonTTY Error = "non tty"
+	// ErrTermResponseTimedOut is the term response timed out error.
+	ErrTermResponseTimedOut Error = "term response timed out"
+)
