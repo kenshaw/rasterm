@@ -11,7 +11,7 @@ import (
 // TermType is a terminal graphics type.
 type TermType uint8
 
-// Term types.
+// Terminal graphics types.
 const (
 	Default TermType = ^TermType(0)
 	Kitty   TermType = iota
@@ -27,7 +27,7 @@ func (typ TermType) String() string {
 	return fmt.Sprintf("TermType(%d)", uint8(typ))
 }
 
-// Available returns true when the term type is available.
+// Available returns true when the terminal graphics type is available.
 func (typ TermType) Available() bool {
 	if r, ok := encoders[typ]; ok {
 		return r.Available()
@@ -58,9 +58,14 @@ func init() {
 	}
 }
 
-// Encode encodes the image to w.
+// Encode encodes the image to w using the [Default] encoder.
 func Encode(w io.Writer, img image.Image) error {
 	return Default.Encode(w, img)
+}
+
+// Available returns true the [Default] encoder is available.
+func Available() bool {
+	return Default.Available()
 }
 
 // Error is an error.
