@@ -22,8 +22,6 @@ Fork/rewrite of [`rasterm`][original-rasterm].
 [releases]: https://github.com/kenshaw/rasterm/releases "Releases"
 [original-rasterm]: https://github.com/BourgeoisBear/rasterm
 
-[![GoDoc](https://pkg.go.dev/github.com/kenshaw/rasterm?status.png)](http://pkg.go.dev/github.com/kenshaw/rasterm)
-
 ## Using
 
 Install in the usual Go fashion:
