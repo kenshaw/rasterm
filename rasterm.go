@@ -14,17 +14,21 @@ type TermType uint8
 // Terminal graphics types.
 const (
 	Default TermType = ^TermType(0)
-	Kitty   TermType = iota
+	None    TermType = iota
+	Kitty
 	ITerm
 	Sixel
 )
 
 // String satisfies the [fmt.Stringer] interface.
 func (typ TermType) String() string {
-	if r, ok := encoders[typ]; ok {
+	switch r, ok := encoders[typ]; {
+	case ok:
 		return r.String()
+	case typ != None:
+		return fmt.Sprintf("TermType(%d)", uint8(typ))
 	}
-	return fmt.Sprintf("TermType(%d)", uint8(typ))
+	return ""
 }
 
 // Available returns true when the terminal graphics type is available.
@@ -32,15 +36,18 @@ func (typ TermType) Available() bool {
 	if r, ok := encoders[typ]; ok {
 		return r.Available()
 	}
-	return false
+	return typ == None
 }
 
 // Encode encodes the image to w.
 func (typ TermType) Encode(w io.Writer, img image.Image) error {
-	if r, ok := encoders[typ]; ok {
+	switch r, ok := encoders[typ]; {
+	case ok:
 		return r.Encode(w, img)
+	case typ != None:
+		return ErrTermGraphicsNotAvailable
 	}
-	return ErrTermGraphicsNotAvailable
+	return nil
 }
 
 // encoders are the registered encoders.

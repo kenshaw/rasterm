@@ -44,8 +44,7 @@ func (KittyEncoder) String() string {
 
 // Available satisfies the [Encoder] interface.
 func (KittyEncoder) Available() bool {
-	return strings.ToLower(os.Getenv("TERM_GRAPHICS")) == "kitty" ||
-		strings.ToLower(os.Getenv("TERM")) == "xterm-kitty"
+	return !hasTermGraphics("none") && (hasTermGraphics("kitty") || strings.ToLower(os.Getenv("TERM")) == "xterm-kitty")
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -87,10 +86,10 @@ func (ITermEncoder) String() string {
 
 // Available satisfies the [Encoder] interface.
 func (ITermEncoder) Available() bool {
-	return strings.ToLower(os.Getenv("TERM_GRAPHICS")) == "iterm" ||
+	return !hasTermGraphics("none") && (hasTermGraphics("iterm") ||
 		strings.ToLower(os.Getenv("TERM")) == "mintty" ||
 		strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
-		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm"
+		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm")
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -134,10 +133,7 @@ func (SixelEncoder) String() string {
 
 // Available satisfies the [Encoder] interface.
 func (SixelEncoder) Available() bool {
-	if strings.ToLower(os.Getenv("TERM_GRAPHICS")) == "sixel" {
-		return true
-	}
-	return hasSixelSupport()
+	return !hasTermGraphics("none") && (hasTermGraphics("sixel") || hasSixelSupport())
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -229,3 +225,17 @@ func chunkEncode(w io.Writer, buf []byte, size int) error {
 	}
 	return nil
 }
+
+// hasTermGraphics returns true when the $ENV{TERM_GRAPHICS} is the specified
+// type.
+func hasTermGraphics(typ string) bool {
+	tgOnce.Do(func() {
+		tgType = strings.ToLower(os.Getenv("TERM_GRAPHICS"))
+	})
+	return typ == tgType
+}
+
+var (
+	tgType string
+	tgOnce sync.Once
+)
