@@ -20,7 +20,6 @@ var DefaultJPEGQuality = 93
 
 // Encoder provides a common interface for terminal graphic encoders.
 type Encoder interface {
-	String() string
 	Available() bool
 	Encode(io.Writer, image.Image) error
 }
@@ -35,11 +34,6 @@ type KittyEncoder struct {
 // See: https://sw.kovidgoyal.net/kitty/graphics-protocol.html
 func NewKittyEncoder() Encoder {
 	return KittyEncoder{}
-}
-
-// String satisfies the [Encoder] interface.
-func (KittyEncoder) String() string {
-	return "kitty"
 }
 
 // Available satisfies the [Encoder] interface.
@@ -77,11 +71,6 @@ type ITermEncoder struct {
 // NewITermEncoder creates a iTerm terminal graphics encoder.
 func NewITermEncoder() Encoder {
 	return ITermEncoder{}
-}
-
-// String satisfies the [Encoder] interface.
-func (ITermEncoder) String() string {
-	return "iterm"
 }
 
 // Available satisfies the [Encoder] interface.
@@ -124,11 +113,6 @@ type SixelEncoder struct {
 // NewSixelEncoder creates a Sixel terminal graphics encoder.
 func NewSixelEncoder() Encoder {
 	return SixelEncoder{}
-}
-
-// String satisfies the [Encoder] interface.
-func (SixelEncoder) String() string {
-	return "sixel"
 }
 
 // Available satisfies the [Encoder] interface.
@@ -174,15 +158,6 @@ func (r *DefaultEncoder) init() {
 	if r.r == nil {
 		r.err = ErrTermGraphicsNotAvailable
 	}
-}
-
-// String satisfies the [Encoder] interface.
-func (r *DefaultEncoder) String() string {
-	r.once.Do(r.init)
-	if r.err == nil && r.r != nil {
-		return r.r.String()
-	}
-	return "none"
 }
 
 // Available satisfies the [Encoder] interface.

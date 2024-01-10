@@ -3,9 +3,9 @@
 package rasterm
 
 import (
-	"fmt"
 	"image"
 	"io"
+	"strings"
 )
 
 // TermType is a terminal graphics type.
@@ -13,23 +13,12 @@ type TermType uint8
 
 // Terminal graphics types.
 const (
-	Default TermType = ^TermType(0)
-	None    TermType = iota
+	None TermType = iota
 	Kitty
 	ITerm
 	Sixel
+	Default TermType = ^TermType(0)
 )
-
-// String satisfies the [fmt.Stringer] interface.
-func (typ TermType) String() string {
-	switch r, ok := encoders[typ]; {
-	case ok:
-		return r.String()
-	case typ != None:
-		return fmt.Sprintf("TermType(%d)", uint8(typ))
-	}
-	return ""
-}
 
 // Available returns true when the terminal graphics type is available.
 func (typ TermType) Available() bool {
@@ -46,6 +35,47 @@ func (typ TermType) Encode(w io.Writer, img image.Image) error {
 		return r.Encode(w, img)
 	case typ != None:
 		return ErrTermGraphicsNotAvailable
+	}
+	return nil
+}
+
+// String satisfies the [fmt.Stringer] interface.
+func (typ TermType) String() string {
+	switch typ {
+	case Kitty:
+		return "kitty"
+	case ITerm:
+		return "iterm"
+	case Default:
+		return "default"
+	}
+	return "none"
+}
+
+// MarshalText satisfies the [encoding.TextMarshaler] interface.
+func (typ TermType) MarshalText() ([]byte, error) {
+	switch typ {
+	case None, Kitty, ITerm, Sixel:
+		return []byte(typ.String()), nil
+	case Default:
+		return nil, nil
+	}
+	return nil, ErrUnknownTermType
+}
+
+// UnmarshalText satisfies the [encoding.TextUnmarshaler] interface.
+func (typ *TermType) UnmarshalText(buf []byte) error {
+	switch strings.ToLower(string(buf)) {
+	case "kitty":
+		*typ = Kitty
+	case "iterm":
+		*typ = ITerm
+	case "sixel":
+		*typ = Sixel
+	case "":
+		*typ = Default
+	default:
+		*typ = None
 	}
 	return nil
 }
@@ -90,4 +120,6 @@ const (
 	ErrNonTTY Error = "non tty"
 	// ErrTermResponseTimedOut is the term response timed out error.
 	ErrTermResponseTimedOut Error = "term response timed out"
+	// ErrUnknownTermType is the unknown term type error.
+	ErrUnknownTermType Error = "unknown term type"
 )
