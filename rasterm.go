@@ -39,6 +39,14 @@ func (typ TermType) Encode(w io.Writer, img image.Image) error {
 	return nil
 }
 
+// EnvValue returns the environment value name for the type.
+func (typ TermType) EnvValue() string {
+	if typ == Default {
+		return ""
+	}
+	return typ.String()
+}
+
 // String satisfies the [fmt.Stringer] interface.
 func (typ TermType) String() string {
 	switch typ {
@@ -46,6 +54,8 @@ func (typ TermType) String() string {
 		return "kitty"
 	case ITerm:
 		return "iterm"
+	case Sixel:
+		return "sixel"
 	case Default:
 		return "default"
 	}
@@ -56,7 +66,7 @@ func (typ TermType) String() string {
 func (typ TermType) MarshalText() ([]byte, error) {
 	switch typ {
 	case None, Kitty, ITerm, Sixel:
-		return []byte(typ.String()), nil
+		return []byte(typ.EnvValue()), nil
 	case Default:
 		return nil, nil
 	}
