@@ -182,7 +182,7 @@ func (r *DefaultEncoder) String() string {
 	if r.err == nil && r.r != nil {
 		return r.r.String()
 	}
-	return "<none>"
+	return "none"
 }
 
 // Available satisfies the [Encoder] interface.
