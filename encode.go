@@ -106,6 +106,8 @@ func (r ITermEncoder) Encode(w io.Writer, img image.Image) error {
 }
 
 // SixelEncoder is a Sixel terminal graphics encoder.
+//
+// See: https://saitoha.github.io/libsixel/
 type SixelEncoder struct {
 	NoNewline bool
 }
