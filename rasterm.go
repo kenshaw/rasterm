@@ -25,18 +25,15 @@ func (typ TermType) Available() bool {
 	if r, ok := encoders[typ]; ok {
 		return r.Available()
 	}
-	return typ == None
+	return false
 }
 
 // Encode encodes the image to w.
 func (typ TermType) Encode(w io.Writer, img image.Image) error {
-	switch r, ok := encoders[typ]; {
-	case ok:
+	if r, ok := encoders[typ]; ok {
 		return r.Encode(w, img)
-	case typ != None:
-		return ErrTermGraphicsNotAvailable
 	}
-	return nil
+	return ErrTermGraphicsNotAvailable
 }
 
 // EnvValue returns the environment value name for the type.
@@ -76,6 +73,8 @@ func (typ TermType) MarshalText() ([]byte, error) {
 // UnmarshalText satisfies the [encoding.TextUnmarshaler] interface.
 func (typ *TermType) UnmarshalText(buf []byte) error {
 	switch strings.ToLower(string(buf)) {
+	default:
+		*typ = None
 	case "kitty":
 		*typ = Kitty
 	case "iterm":
@@ -84,8 +83,6 @@ func (typ *TermType) UnmarshalText(buf []byte) error {
 		*typ = Sixel
 	case "":
 		*typ = Default
-	default:
-		*typ = None
 	}
 	return nil
 }

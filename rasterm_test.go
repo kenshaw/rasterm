@@ -13,7 +13,7 @@ import (
 )
 
 func TestAvailable(t *testing.T) {
-	for _, typ := range []TermType{Kitty, ITerm, Sixel, Default} {
+	for _, typ := range []TermType{None, Kitty, ITerm, Sixel, Default} {
 		t.Logf("type: % 7s env: % 6s available: %t", typ, typ.EnvValue(), typ.Available())
 	}
 }
