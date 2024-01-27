@@ -2,7 +2,7 @@ on: [push, pull_request]
 name: Test
 jobs:
   test:
-    name: Build
+    name: Test
     runs-on: ubuntu-latest
     steps:
     - name: Install Go
@@ -10,6 +10,7 @@ jobs:
       with:
         go-version: stable
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - name: Build
-      run: TERM_GRAPHICS=sixel go test -v ./...
+      run: |
+        TERM_GRAPHICS=sixel go test -v ./...
