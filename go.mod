@@ -1,6 +1,6 @@
 module github.com/kenshaw/rasterm
 
-go 1.21
+go 1.20
 
 require (
 	github.com/mattn/go-sixel v0.0.5
