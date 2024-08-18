@@ -3,6 +3,7 @@
 package rasterm
 
 import (
+	"errors"
 	"os"
 	"regexp"
 	"strconv"
@@ -110,7 +111,7 @@ func termRequestResponse(in, out *os.File, sRq string) (sRsp []byte, err error) 
 		}
 	}()
 	// send request
-	if _, err = out.Write([]byte(sRq)); err != nil {
+	if _, err = out.WriteString(sRq); err != nil {
 		return
 	}
 	buf := make([]byte, 1024)
@@ -126,7 +127,7 @@ func termRequestResponse(in, out *os.File, sRq string) (sRsp []byte, err error) 
 			// "Report Cursor Position (CPR) [row; column]
 			// just to get some bytes to stdin
 			// NOTE: seems to work for everything except mlterm
-			_, _ = out.Write([]byte("\x1b\x1b[" + "6n"))
+			_, _ = out.WriteString("\x1b\x1b[" + "6n")
 			break
 		case <-done:
 			break
@@ -142,7 +143,7 @@ func termRequestResponse(in, out *os.File, sRq string) (sRsp []byte, err error) 
 		err = ErrTermResponseTimedOut
 	}
 	wg.Wait()
-	if n > 0 && err != ErrTermResponseTimedOut {
+	if n > 0 && errors.Is(err, ErrTermResponseTimedOut) {
 		return buf[:n], nil
 	}
 	return nil, err
