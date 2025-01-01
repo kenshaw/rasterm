@@ -38,7 +38,10 @@ func NewKittyEncoder() Encoder {
 
 // Available satisfies the [Encoder] interface.
 func (KittyEncoder) Available() bool {
-	return !hasTermGraphics("none") && (hasTermGraphics("kitty") || strings.ToLower(os.Getenv("TERM")) == "xterm-kitty")
+	return !hasTermGraphics("none") &&
+		(hasTermGraphics("kitty") ||
+			strings.ToLower(os.Getenv("TERM")) == "xterm-kitty" ||
+			strings.ToLower(os.Getenv("TERM_PROGRAM")) == "ghostty")
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -75,10 +78,11 @@ func NewITermEncoder() Encoder {
 
 // Available satisfies the [Encoder] interface.
 func (ITermEncoder) Available() bool {
-	return !hasTermGraphics("none") && (hasTermGraphics("iterm") ||
-		strings.ToLower(os.Getenv("TERM")) == "mintty" ||
-		strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
-		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm")
+	return !hasTermGraphics("none") &&
+		(hasTermGraphics("iterm") ||
+			strings.ToLower(os.Getenv("TERM")) == "mintty" ||
+			strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
+			strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm")
 }
 
 // Encode satisfies the [Encoder] interface.
