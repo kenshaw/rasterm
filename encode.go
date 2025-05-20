@@ -40,6 +40,7 @@ func NewKittyEncoder() Encoder {
 func (KittyEncoder) Available() bool {
 	return !hasTermGraphics("none") &&
 		(hasTermGraphics("kitty") ||
+			(os.Getenv("KITTY_PID") != "" && os.Getenv("KITTY_WINDOW_ID") != "") ||
 			strings.ToLower(os.Getenv("TERM")) == "xterm-kitty" ||
 			strings.ToLower(os.Getenv("TERM_PROGRAM")) == "ghostty")
 }
