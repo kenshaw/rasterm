@@ -1,1 +1,8 @@
 *.prof
+
+# .claude holds the agent skills, which are tracked, and the state of one
+# person, which is not. settings.local.json holds the Claude Code permissions
+# of one person (D8).
+/.claude/*
+!/.claude/skills/
+.claude/settings.local.json

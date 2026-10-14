@@ -10,10 +10,11 @@ import (
 )
 
 func Example() {
-	f, err := os.OpenFile("/path/to/image.png", os.O_RDONLY, 0)
+	f, err := os.Open("/path/to/image.png")
 	if err != nil {
 		panic(err)
 	}
+	defer f.Close()
 	img, _, err := image.Decode(f)
 	if err != nil {
 		panic(err)

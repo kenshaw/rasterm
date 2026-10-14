@@ -5,6 +5,7 @@ package rasterm
 import (
 	"image"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -17,6 +18,7 @@ const (
 	Kitty
 	ITerm
 	Sixel
+	Halfblock
 	Default TermType = ^TermType(0)
 )
 
@@ -53,6 +55,8 @@ func (typ TermType) String() string {
 		return "iterm"
 	case Sixel:
 		return "sixel"
+	case Halfblock:
+		return "halfblock"
 	case Default:
 		return "default"
 	}
@@ -62,7 +66,7 @@ func (typ TermType) String() string {
 // MarshalText satisfies the [encoding.TextMarshaler] interface.
 func (typ TermType) MarshalText() ([]byte, error) {
 	switch typ {
-	case None, Kitty, ITerm, Sixel:
+	case None, Kitty, ITerm, Sixel, Halfblock:
 		return []byte(typ.EnvValue()), nil
 	case Default:
 		return nil, nil
@@ -71,8 +75,11 @@ func (typ TermType) MarshalText() ([]byte, error) {
 }
 
 // UnmarshalText satisfies the [encoding.TextUnmarshaler] interface.
+//
+// The text is read as [normalize] returns it, so "Half-Blocks" is
+// [Halfblock].
 func (typ *TermType) UnmarshalText(buf []byte) error {
-	switch strings.ToLower(string(buf)) {
+	switch normalize(string(buf)) {
 	default:
 		*typ = None
 	case "kitty":
@@ -81,11 +88,24 @@ func (typ *TermType) UnmarshalText(buf []byte) error {
 		*typ = ITerm
 	case "sixel":
 		*typ = Sixel
+	case "halfblock":
+		*typ = Halfblock
 	case "":
 		*typ = Default
 	}
 	return nil
 }
+
+// normalize returns the name of a terminal graphics type as the code
+// compares it: in lower case, with each character that is not a letter
+// removed, and without a final s. So "half-block", "half-blocks",
+// "halfblocks" and "HalfBlock" are each "halfblock", and "iTerm2" is "iterm".
+func normalize(s string) string {
+	return strings.TrimSuffix(nonLetters.ReplaceAllString(strings.ToLower(s), ""), "s")
+}
+
+// nonLetters matches each run of characters that are not a lower case letter.
+var nonLetters = regexp.MustCompile(`[^a-z]+`)
 
 // encoders are the registered encoders.
 var encoders map[TermType]Encoder
@@ -94,11 +114,15 @@ func init() {
 	kitty := NewKittyEncoder()
 	iterm := NewITermEncoder()
 	sixel := NewSixelEncoder()
+	halfblock := NewHalfblockEncoder()
 	encoders = map[TermType]Encoder{
-		Kitty:   kitty,
-		ITerm:   iterm,
-		Sixel:   sixel,
-		Default: NewDefaultEncoder(kitty, iterm, sixel),
+		Kitty:     kitty,
+		ITerm:     iterm,
+		Sixel:     sixel,
+		Halfblock: halfblock,
+		// half blocks are last, and are available only when TERM_GRAPHICS
+		// is halfblock, so they are never a fallback
+		Default: NewDefaultEncoder(kitty, iterm, sixel, halfblock),
 	}
 }
 

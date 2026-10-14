@@ -1,16 +1,62 @@
-on: [push, pull_request]
+# Tests rasterm on every push and pull request, on Linux, macOS and Windows.
+#
+# Each platform runs on the Go release that go.mod declares and on the latest
+# stable release, so that the code builds on the oldest release it claims and
+# a change in a new release shows. term_unix.go and term_other.go build on
+# different platforms, which is why each one runs.
 name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} (go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.26', 'stable']
+    defaults:
+      run:
+        shell: bash
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: stable
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Build
-      run: |
-        TERM_GRAPHICS=sixel go test -v ./...
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+
+      # formatting and vet do not depend on the platform, so one job runs them
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest' && matrix.go == 'stable'
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "these files are not formatted:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: Vet
+        if: matrix.os == 'ubuntu-latest' && matrix.go == 'stable'
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      # TERM_GRAPHICS makes the sixel encoder available, so that TestEncode
+      # has an encoder to write with on a runner that has no terminal
+      - name: Test
+        env:
+          TERM_GRAPHICS: sixel
+        run: go test -count=1 ./...

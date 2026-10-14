@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -19,13 +20,8 @@ func hasSixelSupport() bool {
 	if err != nil {
 		return false
 	}
-	for i := range attrs {
-		// ignore `4` @ 1st index -- that is terminal id rather than sixel support
-		if 0 < i && attrs[i] == 4 {
-			return true
-		}
-	}
-	return false
+	// ignore the first attribute, which is the terminal id, and can be 4
+	return len(attrs) > 1 && slices.Contains(attrs[1:], 4)
 }
 
 // termAttributes requests terminal attributes.
@@ -117,28 +113,24 @@ func termRequestResponse(in, out *os.File, sRq string) (sRsp []byte, err error) 
 	buf := make([]byte, 1024)
 	// wait 1/16 second for term response.  if timer expires, trigger bytes to
 	// stdin so .read() can finish
-	t := time.NewTimer(time.Second >> 4)
-	done := make(chan bool)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
+	t := time.NewTimer(time.Second / 16)
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		select {
 		case <-t.C:
 			// "Report Cursor Position (CPR) [row; column]
 			// just to get some bytes to stdin
 			// NOTE: seems to work for everything except mlterm
 			_, _ = out.WriteString("\x1b\x1b[" + "6n")
-			break
 		case <-done:
-			break
 		}
-		wg.Done()
-	}()
+	})
 	// capture response
 	n, err := in.Read(buf)
 	// ensure termination
 	if t.Stop() {
-		done <- true
+		close(done)
 	} else {
 		err = ErrTermResponseTimedOut
 	}

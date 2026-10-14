@@ -1,0 +1,5 @@
+# Every text file is LF on every checkout, including on Windows (D8).
+* text=auto eol=lf
+
+# testdata holds images, which git must not convert
+/testdata/** -text
