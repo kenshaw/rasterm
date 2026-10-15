@@ -61,6 +61,7 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
   (D12).
 - `jpeg.go` holds `JPEGImage` and `JPEG`, and the scan of the JPEG markers
   (D13). `rgb.go` holds `RGBImage`, `RGBAImage`, `RGB` and `RGBA` (D14).
+  `zlib.go` holds `ZlibMode`, which compresses raw pixels for Kitty (D18).
 - `png.go` holds `PNGImage` and `PNG` (D10), the PNG encoding that Kitty and
   iTerm share (D11), and the pool of output buffers.
 - `term_unix.go` asks the terminal for its device attributes, to find Sixel.
@@ -68,8 +69,8 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
 - `testdata/` holds the test images. Git does not convert them.
 - `rasterm_test.go` and `example_test.go` hold the original tests and the
   example. `encode_test.go` holds the tests and the benchmarks of D9, D10
-  and D11, `raw_test.go` holds those of D13 and D14, and `halfblock_test.go`
-  holds those of D12. `docs_test.go` holds the checks of D8.
+  and D11, `raw_test.go` holds those of D13 and D14, `zlib_test.go` holds
+  those of D18, and `halfblock_test.go` holds those of D12. `docs_test.go` holds the checks of D8.
 
 ## Go conventions
 

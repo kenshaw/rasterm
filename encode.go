@@ -26,6 +26,9 @@ type Encoder interface {
 // KittyEncoder is a Kitty terminal graphics encoder.
 type KittyEncoder struct {
 	NoNewline bool
+
+	// Zlib is how raw pixels are compressed. The zero value is [ZlibAuto].
+	Zlib ZlibMode
 }
 
 // NewKittyEncoder creates a Kitty terminal graphics encoder.
@@ -48,7 +51,8 @@ func (KittyEncoder) Available() bool {
 //
 // If img is a [PNGImage], an [RGBImage] or an [RGBAImage], its bytes are
 // sent as they are, in that order of preference. Otherwise the image is sent
-// as a PNG. The output is built in memory and written to w in one call.
+// as a PNG. Raw pixels are compressed with zlib as [KittyEncoder.Zlib] says.
+// The output is built in memory and written to w in one call.
 func (r KittyEncoder) Encode(w io.Writer, img image.Image) error {
 	src := getBuffer()
 	defer putBuffer(src)
@@ -56,11 +60,18 @@ func (r KittyEncoder) Encode(w io.Writer, img image.Image) error {
 	if err != nil {
 		return err
 	}
+	var z bool
+	if format != kittyPNG {
+		// src holds no png here, so the zlib stream can use it
+		if data, z, err = zlibData(src, data, r.Zlib); err != nil {
+			return err
+		}
+	}
 	out := getBuffer()
 	defer putBuffer(out)
 	out.Grow(kittyLen(len(data)) + 1)
 	b := img.Bounds()
-	buf := appendKitty(out.AvailableBuffer(), format, b.Dx(), b.Dy(), data)
+	buf := appendKitty(out.AvailableBuffer(), format, b.Dx(), b.Dy(), z, data)
 	if !r.NoNewline {
 		buf = append(buf, '\n')
 	}
@@ -240,7 +251,7 @@ func kittyData(buf *bytes.Buffer, img image.Image) (int, []byte, error) {
 
 // kittyStartMax is the length of the longest start of a Kitty image, with a
 // width and a height of 10 digits each.
-const kittyStartMax = len("\x1b_Ga=T,f=100,s=,v=,m=1;\x1b\\") + 20
+const kittyStartMax = len("\x1b_Ga=T,f=100,s=,v=,o=z,m=1;\x1b\\") + 20
 
 // kittyChunk is the number of bytes of PNG in each chunk. Its base64
 // encoding is 4096 bytes, which is the largest chunk that the Kitty protocol
@@ -256,9 +267,9 @@ func kittyLen(n int) int {
 
 // appendKitty appends the Kitty escape sequences that send data to buf. The
 // first sequence names the format, and for raw pixels the width w and the
-// height h. Each chunk after it holds the base64 encoding of [kittyChunk]
-// bytes of data.
-func appendKitty(buf []byte, format, w, h int, data []byte) []byte {
+// height h, and o=z when z is true and data is one zlib stream. Each chunk
+// after it holds the base64 encoding of [kittyChunk] bytes of data.
+func appendKitty(buf []byte, format, w, h int, z bool, data []byte) []byte {
 	buf = append(buf, "\x1b_Ga=T,f="...)
 	buf = strconv.AppendInt(buf, int64(format), 10)
 	if format != kittyPNG {
@@ -266,6 +277,9 @@ func appendKitty(buf []byte, format, w, h int, data []byte) []byte {
 		buf = strconv.AppendInt(buf, int64(w), 10)
 		buf = append(buf, ",v="...)
 		buf = strconv.AppendInt(buf, int64(h), 10)
+	}
+	if z {
+		buf = append(buf, ",o=z"...)
 	}
 	buf = append(buf, ",m=1;\x1b\\"...)
 	for i := 0; i < len(data); i += kittyChunk {

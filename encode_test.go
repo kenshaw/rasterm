@@ -23,7 +23,7 @@ func TestAppendKittyMatchesChunkEncode(t *testing.T) {
 			if err := chunkEncode(&want, data); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			got := appendKitty(nil, kittyPNG, 0, 0, data)
+			got := appendKitty(nil, kittyPNG, 0, 0, false, data)
 			if !bytes.Equal(got, want.Bytes()) {
 				t.Errorf("expected the output of chunkEncode, got:\n%q\nwant:\n%q", got, want.Bytes())
 			}
@@ -85,7 +85,7 @@ func TestPNGIsSentAsIs(t *testing.T) {
 			if err := encoders[Kitty].Encode(&kitty, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if want := string(appendKitty(nil, kittyPNG, 0, 0, f.buf)) + "\n"; kitty.String() != want {
+			if want := string(appendKitty(nil, kittyPNG, 0, 0, false, f.buf)) + "\n"; kitty.String() != want {
 				t.Errorf("expected kitty to send the PNG as is")
 			}
 			var iterm bytes.Buffer

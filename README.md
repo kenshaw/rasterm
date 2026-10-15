@@ -58,8 +58,12 @@ if err := rasterm.Encode(os.Stdout, img); err != nil {
 ```
 
 RGB and RGBA are packed 8-bit pixels, row by row, with no padding, and RGBA
-alpha is not premultiplied. Raw pixels take less time to encode than a PNG,
-and the terminal must read more bytes. If the image is scaled or cropped,
+alpha is not premultiplied. Raw pixels take less time to encode than a PNG.
+Kitty compresses raw pixels of 64 KiB or more with zlib while they compress
+to less than a quarter of their size. It checks after each 64 KiB, and sends
+the pixels raw at the first check that fails. So a flat or rendered image
+sends few bytes, and a photo stays raw. Set `KittyEncoder.Zlib` to
+`ZlibAlways` or `ZlibNever` to force the choice. If the image is scaled or cropped,
 wrap the new image with no bytes, or with new ones.
 
 ## Half blocks
@@ -113,6 +117,22 @@ An image that holds its own bytes skips the encoding:
 A PNG or a JPEG that is sent as is takes 180 to 220 times less time. Raw
 pixels take 17 to 23 times less time, and the terminal must read 3 to 5
 times the bytes.
+
+Kitty compresses raw pixels with zlib when they compress well. The size is
+what the terminal reads, after base64:
+
+| Image | Raw | Always zlib | Automatic |
+| --- | --- | --- | --- |
+| a flat 1024 x 1024 image | 5473 KiB, 1.66 ms | 44 KiB, 1.44 ms | 46 KiB, 1.46 ms |
+| `orca.png` | 6938 KiB, 2.12 ms | 309 KiB, 4.69 ms | 329 KiB, 5.00 ms |
+| `png3.png` | 1336 KiB, 0.46 ms | 78 KiB, 1.13 ms | 80 KiB, 1.08 ms |
+| random noise, 1024 x 1024 | 5473 KiB, 1.68 ms | 5474 KiB, 2.68 ms | 5473 KiB, 1.71 ms |
+| `jpg2.jpg` | 3055 KiB, 0.97 ms | 1371 KiB, 9.64 ms | 3055 KiB, 1.16 ms |
+| `jpg1.jpg` | 4378 KiB, 1.35 ms | 1543 KiB, 10.99 ms | 4378 KiB, 3.69 ms |
+
+The top of `jpg1.jpg` compresses well, so the automatic choice compresses
+the first rows before it finds that the photo does not, and then sends it
+raw.
 
 To measure on your own machine, run the benchmarks:
 

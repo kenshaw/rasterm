@@ -78,10 +78,11 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D11](#d11-png-encoding-uses-the-fastest-compression-level-proposed) | PNG encoding uses the fastest compression level | Proposed |
 | [D12](#d12-a-half-block-encoder-draws-the-image-as-text-only-when-term_graphics-asks-for-it-decided-amends-d4-amended-by-d17) | A half-block encoder draws the image as text, only when TERM_GRAPHICS asks for it | Decided. Amends D4. Amended by D17 |
 | [D13](#d13-each-format-that-an-encoder-can-send-as-is-has-its-own-interface-decided) | Each format that an encoder can send as is has its own interface | Decided |
-| [D14](#d14-kitty-sends-the-pixels-of-an-rgbimage-or-an-rgbaimage-as-they-are-decided) | Kitty sends the pixels of an RGBImage or an RGBAImage as they are | Decided |
+| [D14](#d14-kitty-sends-the-pixels-of-an-rgbimage-or-an-rgbaimage-as-they-are-decided-amended-by-d18) | Kitty sends the pixels of an RGBImage or an RGBAImage as they are | Decided. Amended by D18 |
 | [D15](#d15-the-module-requires-the-newest-golangorgx-modules-and-the-go-release-that-they-need-decided) | The module requires the newest golang.org/x modules, and the Go release that they need | Decided |
 | [D16](#d16-ci-tests-on-linux-macos-and-windows-on-the-go-release-of-gomod-and-the-latest-decided) | CI tests on Linux, macOS and Windows, on the Go release of go.mod and the latest | Decided |
 | [D17](#d17-a-protocol-that-term_graphics-names-turns-off-each-other-protocol-decided-amends-d3-amends-d12) | A protocol that TERM_GRAPHICS names turns off each other protocol | Decided. Amends D3. Amends D12 |
+| [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -353,7 +354,7 @@ A JPEG file can hold an orientation in its EXIF data. Go does not apply it,
 and a terminal can. A rotated JPEG can then show in a different orientation
 when it is sent as is than when it is encoded again.
 
-### D14. Kitty sends the pixels of an RGBImage or an RGBAImage as they are. Decided.
+### D14. Kitty sends the pixels of an RGBImage or an RGBAImage as they are. Decided. Amended by D18.
 
 Date: 2026-10-15.
 
@@ -435,6 +436,62 @@ detected. Now `TERM_GRAPHICS=halfblock` selects half blocks in any terminal.
 The `iv` code that sends a Kitty delete command before each frame of an
 animation reads `rasterm.Kitty.Available`, so it also stops when another
 protocol is selected.
+
+### D18. Kitty compresses raw pixels with zlib when they compress well. Decided. Amends D14.
+
+Date: 2026-10-15.
+
+Ken asked through the `iv` session on 2026-10-15 for zlib compression (`o=z`)
+of raw pixels, and he chose the threshold. `iv` now sends raw RGB and RGBA
+through `RGBImage` and `RGBAImage`. D14 sent them uncompressed.
+
+`KittyEncoder.Zlib` sets the mode. `ZlibAuto` is the zero value and the
+default, and `ZlibAlways` and `ZlibNever` force each choice. A PNG is never
+compressed again, because it is compressed already. In `ZlibAuto`:
+
+1. Raw pixels under 64 KiB are sent raw.
+2. For more, the encoder starts one zlib stream at level 1 (RFC 1950).
+   After each 64 KiB of input, it flushes the stream and compares all the
+   output so far with all the input so far.
+3. At the first check where the output is not less than 0.25 of the input,
+   the encoder drops the stream and sends the pixels raw. The work before
+   that check is the only waste. If each check passes, it sends the whole
+   stream with `o=z`. A last piece under 64 KiB is not checked.
+
+Kitty reads one zlib stream across all the chunks: zlib, then base64, then
+chunks of 4096 bytes. The writer is closed before the last chunk. `s` and
+`v` are the same as for raw pixels. The zlib writers are kept in a
+`sync.Pool`. `TestKittyZlib` decodes the escape sequences back to the pixels
+in each mode.
+
+`iv` measured the choice in its own images. With level 1, flat and rendered
+images compressed to 0.02 to 0.21 of the raw size, and two photos to 0.39
+and 0.59. Gemini reviewed the design. It replaced a sample of the image with
+the check on the live stream, and it advised against reading `SSH_CONNECTION`
+or `SSH_TTY` to find a remote terminal, because tmux and containers keep
+stale values.
+
+The first design checked once, after the first 64 KiB. That reads only the
+top of the image. For `testdata/jpg1.jpg`, a photo, the top compressed to
+less than 0.25, so `ZlibAuto` compressed the whole photo, in 11 ms in place
+of 1.35 ms. Ken chose on 2026-10-15 to check after each 64 KiB. The ratio is
+of all the output to all the input, so that a flat page with a photo in it
+still compresses. `TestKittyZlib` has a flat top over noise, which the first
+design compressed and this one sends raw.
+
+`BenchmarkKittyZlib` measures each mode. On 2026-10-15, with the RGBA of each
+image:
+
+| Image | Raw | `ZlibAuto`, one check | `ZlibAuto`, each 64 KiB |
+| --- | --- | --- | --- |
+| `orca.png` | 6938 KiB, 2.12 ms | 309 KiB, 4.65 ms | 329 KiB, 5.00 ms |
+| `jpg1.jpg` | 4378 KiB, 1.35 ms | 1542 KiB, 10.99 ms | 4378 KiB, 3.69 ms |
+| `jpg2.jpg` | 3055 KiB, 0.97 ms | 3055 KiB, 1.15 ms | 3055 KiB, 1.16 ms |
+| noise, 1024 x 1024 | 5473 KiB, 1.68 ms | 5473 KiB, 1.68 ms | 5473 KiB, 1.71 ms |
+
+The flush at each check costs a flat image about 6% more bytes and 7% more
+time. A photo with a flat top still costs the time to compress the top, which
+is 2.3 ms for `jpg1.jpg`.
 
 ## Open questions for Ken
 
