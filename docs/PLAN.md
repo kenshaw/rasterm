@@ -82,7 +82,8 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D15](#d15-the-module-requires-the-newest-golangorgx-modules-and-the-go-release-that-they-need-decided) | The module requires the newest golang.org/x modules, and the Go release that they need | Decided |
 | [D16](#d16-ci-tests-on-linux-macos-and-windows-on-the-go-release-of-gomod-and-the-latest-decided) | CI tests on Linux, macOS and Windows, on the Go release of go.mod and the latest | Decided |
 | [D17](#d17-a-protocol-that-term_graphics-names-turns-off-each-other-protocol-decided-amends-d3-amends-d12) | A protocol that TERM_GRAPHICS names turns off each other protocol | Decided. Amends D3. Amends D12 |
-| [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14 |
+| [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14-amended-by-d19) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14. Amended by D19 |
+| [D19](#d19-the-zlib-stream-is-never-flushed-decided-amends-d18) | The zlib stream is never flushed | Decided. Amends D18 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -437,7 +438,7 @@ The `iv` code that sends a Kitty delete command before each frame of an
 animation reads `rasterm.Kitty.Available`, so it also stops when another
 protocol is selected.
 
-### D18. Kitty compresses raw pixels with zlib when they compress well. Decided. Amends D14.
+### D18. Kitty compresses raw pixels with zlib when they compress well. Decided. Amends D14. Amended by D19.
 
 Date: 2026-10-15.
 
@@ -492,6 +493,48 @@ image:
 The flush at each check costs a flat image about 6% more bytes and 7% more
 time. A photo with a flat top still costs the time to compress the top, which
 is 2.3 ms for `jpg1.jpg`.
+
+### D19. The zlib stream is never flushed. Decided. Amends D18.
+
+Date: 2026-10-15.
+
+On 2026-10-15, the output of `ZlibAuto` in v0.1.19 closed Ghostty 1.3.1 for
+Ken. The image was `testdata/gxps/example.xps` from `iv`, at 1390 x 1966
+RGBA. The same pixels in one zlib stream with no flush worked, and so did
+raw pixels and a PNG. Python and Zig 0.16 inflated every stream to the
+right size, so the fault is in the inflater of Ghostty. The `iv` session
+found the cause and proposed the fix.
+
+D18 flushed the stream at each check, so that the output held each byte of
+the input so far. At `BestSpeed`, each flush adds a stored block of one byte
+and an empty stored block, which is the sync flush marker. The stream of the
+XPS page had 166 of each.
+
+Now the stream is never flushed. At each check, the encoder compares the
+output so far with the input so far, as D18 says, and the output lags the
+input by at most one block. So the ratio reads low, and a photo goes raw one
+or two checks later. A stream that is sent is the same as one stream of all
+the pixels. `TestKittyZlibIsOneStream` checks that the stream is equal to one
+stream with no flush, and that it holds no sync flush marker. It fails on
+v0.1.19.
+
+`compress/flate` of Go 1.26 ends each stream with an empty final stored
+block, which every zlib reader takes. Go 1.27 ends the stream with no stored
+block, and `iv` builds with Go 1.27. Nobody tested a stream from Go 1.26 in
+Ghostty, so the test does not read the last 8 bytes for the marker.
+
+`BenchmarkKittyZlib` on 2026-10-15, for `ZlibAuto` with the RGBA of each
+image:
+
+| Image | v0.1.19, a flush at each check | No flush |
+| --- | --- | --- |
+| `orca.png` | 329 KiB, 5.00 ms | 309 KiB, 4.74 ms |
+| `jpg1.jpg` | 4378 KiB, 3.69 ms, raw | 4378 KiB, 3.67 ms, raw |
+| `jpg2.jpg` | 3055 KiB, 1.16 ms, raw | 3055 KiB, 1.13 ms, raw |
+| a flat 1024 x 1024 image | 46 KiB, 1.46 ms | 44 KiB, 1.46 ms |
+
+Without the flush, a flat image is as small as with `ZlibAlways`, and a
+photo still goes raw.
 
 ## Open questions for Ken
 

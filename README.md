@@ -61,7 +61,8 @@ RGB and RGBA are packed 8-bit pixels, row by row, with no padding, and RGBA
 alpha is not premultiplied. Raw pixels take less time to encode than a PNG.
 Kitty compresses raw pixels of 64 KiB or more with zlib while they compress
 to less than a quarter of their size. It checks after each 64 KiB, and sends
-the pixels raw at the first check that fails. So a flat or rendered image
+the pixels raw at the first check that fails. The zlib stream is never
+flushed, because Ghostty 1.3.1 closes on a stream with sync flushes in it. So a flat or rendered image
 sends few bytes, and a photo stays raw. Set `KittyEncoder.Zlib` to
 `ZlibAlways` or `ZlibNever` to force the choice. If the image is scaled or cropped,
 wrap the new image with no bytes, or with new ones.
@@ -123,12 +124,12 @@ what the terminal reads, after base64:
 
 | Image | Raw | Always zlib | Automatic |
 | --- | --- | --- | --- |
-| a flat 1024 x 1024 image | 5473 KiB, 1.66 ms | 44 KiB, 1.44 ms | 46 KiB, 1.46 ms |
-| `orca.png` | 6938 KiB, 2.12 ms | 309 KiB, 4.69 ms | 329 KiB, 5.00 ms |
-| `png3.png` | 1336 KiB, 0.46 ms | 78 KiB, 1.13 ms | 80 KiB, 1.08 ms |
-| random noise, 1024 x 1024 | 5473 KiB, 1.68 ms | 5474 KiB, 2.68 ms | 5473 KiB, 1.71 ms |
-| `jpg2.jpg` | 3055 KiB, 0.97 ms | 1371 KiB, 9.64 ms | 3055 KiB, 1.16 ms |
-| `jpg1.jpg` | 4378 KiB, 1.35 ms | 1543 KiB, 10.99 ms | 4378 KiB, 3.69 ms |
+| a flat 1024 x 1024 image | 5473 KiB, 1.66 ms | 44 KiB, 1.44 ms | 44 KiB, 1.46 ms |
+| `orca.png` | 6938 KiB, 2.12 ms | 309 KiB, 4.69 ms | 309 KiB, 4.74 ms |
+| `png3.png` | 1336 KiB, 0.46 ms | 78 KiB, 1.13 ms | 78 KiB, 1.07 ms |
+| random noise, 1024 x 1024 | 5473 KiB, 1.68 ms | 5474 KiB, 2.68 ms | 5473 KiB, 1.70 ms |
+| `jpg2.jpg` | 3055 KiB, 0.97 ms | 1371 KiB, 9.64 ms | 3055 KiB, 1.13 ms |
+| `jpg1.jpg` | 4378 KiB, 1.35 ms | 1543 KiB, 10.99 ms | 4378 KiB, 3.67 ms |
 
 The top of `jpg1.jpg` compresses well, so the automatic choice compresses
 the first rows before it finds that the photo does not, and then sends it

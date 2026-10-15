@@ -19,8 +19,9 @@ const (
 	// stream, and after each [zlibProbe] bytes of input, it compares all the
 	// output so far with all the input so far. At the first check where the
 	// output is not less than [zlibRatio] of the input, it drops the stream
-	// and sends the pixels raw. Flat and rendered images compress, and photos
-	// stay raw.
+	// and sends the pixels raw. The stream is never flushed, so a stream that
+	// is sent is the same as one stream of all the pixels. Flat and rendered
+	// images compress, and photos stay raw.
 	ZlibAuto ZlibMode = iota
 	// ZlibAlways compresses raw pixels of any size.
 	ZlibAlways
@@ -59,10 +60,10 @@ func zlibData(buf *bytes.Buffer, data []byte, mode ZlibMode) ([]byte, bool, erro
 			if _, err := zw.Write(data[n-zlibProbe : n]); err != nil {
 				return nil, false, err
 			}
-			// flush, so that buf holds the output of each byte so far
-			if err := zw.Flush(); err != nil {
-				return nil, false, err
-			}
+			// the writer is not flushed, because a flush adds stored blocks
+			// that crash the inflater of Ghostty 1.3.1 (D18). So buf holds
+			// the output up to the last block, and the ratio reads low by at
+			// most one block, and a photo goes raw a check or two later
 			if float64(buf.Len()) >= zlibRatio*float64(n) {
 				buf.Reset()
 				return data, false, nil

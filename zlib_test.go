@@ -2,6 +2,7 @@ package rasterm
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"encoding/base64"
 	"image"
@@ -62,6 +63,56 @@ func TestKittyZlib(t *testing.T) {
 			}
 			if b := test.img.Bounds(); keys["s"] != strconv.Itoa(b.Dx()) || keys["v"] != strconv.Itoa(b.Dy()) {
 				t.Errorf("expected s=%d and v=%d, got: %v", b.Dx(), b.Dy(), keys)
+			}
+		})
+	}
+}
+
+func TestKittyZlibIsOneStream(t *testing.T) {
+	// the auto stream must be the same as one stream of all the pixels, with
+	// no flush. A sync flush adds stored blocks, and Ghostty 1.3.1 closes on
+	// such a stream (D18)
+	inputs := []struct {
+		name string
+		img  image.Image
+	}{
+		{"flat", flatImage(1024, 1024)},
+		{"flat odd size", flatImage(1390, 1966)},
+	}
+	for _, f := range testfiles(t) {
+		inputs = append(inputs, struct {
+			name string
+			img  image.Image
+		}{f.name, f.img})
+	}
+	for _, in := range inputs {
+		t.Run(in.name, func(t *testing.T) {
+			pix := packRGBA(in.img)
+			var buf bytes.Buffer
+			data, z, err := zlibData(&buf, pix, ZlibAuto)
+			switch {
+			case err != nil:
+				t.Fatalf("expected no error, got: %v", err)
+			case !z:
+				t.Skip("sent raw")
+			}
+			var want bytes.Buffer
+			zw, _ := zlib.NewWriterLevel(&want, flate.BestSpeed)
+			if _, err := zw.Write(pix); err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if err := zw.Close(); err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if !bytes.Equal(data, want.Bytes()) {
+				t.Errorf("expected the auto stream to be the same as one stream with no flush")
+			}
+			// a sync flush ends with an empty stored block, 00 00 ff ff. Go
+			// 1.26 ends each stream with an empty final stored block, which
+			// is 4 bytes before the checksum, so the last 8 bytes are not
+			// read
+			if bytes.Contains(data[:len(data)-8], []byte{0x00, 0x00, 0xff, 0xff}) {
+				t.Errorf("expected no sync flush marker in the stream")
 			}
 		})
 	}
