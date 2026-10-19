@@ -127,7 +127,7 @@ func TestKittyZlibNotForPNG(t *testing.T) {
 		if err := (KittyEncoder{Zlib: mode}).Encode(&buf, PNG{Image: flat, Data: data}); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
-		if want := string(appendKitty(nil, kittyPNG, 0, 0, false, data)) + "\n"; buf.String() != want {
+		if want := string(appendKitty(nil, kittyImage{format: kittyPNG}, data)) + "\n"; buf.String() != want {
 			t.Errorf("mode %d: expected the png as is, with no o=z", mode)
 		}
 	}
@@ -139,7 +139,8 @@ var kittyKeyRE = regexp.MustCompile(`([a-zA-Z])=([^,;]*)`)
 
 // decodeKitty returns the keys of the first Kitty escape sequence in s, and
 // the data of all of the sequences, base64 decoded and, for o=z, inflated.
-// It fails unless each chunk but the last has m=1 and the last has m=0.
+// It fails unless each chunk but the last has m=1 and the last has m=0, and a
+// chunk has no other key but the q of the first sequence.
 func decodeKitty(t *testing.T, s string) (map[string]string, []byte) {
 	t.Helper()
 	seqs := regexp.MustCompile("\x1b_G([^;]*);([^\x1b]*)\x1b\\\\").FindAllStringSubmatch(s, -1)
@@ -152,12 +153,17 @@ func decodeKitty(t *testing.T, s string) (map[string]string, []byte) {
 	}
 	var b64 strings.Builder
 	for i, seq := range seqs[1:] {
-		want := "m=1"
+		want := "1"
 		if i == len(seqs)-2 {
-			want = "m=0"
+			want = "0"
 		}
-		if seq[1] != want {
-			t.Fatalf("chunk %d: expected %s, got: %s", i, want, seq[1])
+		chunk := make(map[string]string)
+		for _, m := range kittyKeyRE.FindAllStringSubmatch(seq[1], -1) {
+			chunk[m[1]] = m[2]
+		}
+		// a chunk has only m, and q when the first sequence has it
+		if chunk["m"] != want || len(chunk) > 2 || len(chunk) == 2 && chunk["q"] != keys["q"] {
+			t.Fatalf("chunk %d: expected m=%s, got: %s", i, want, seq[1])
 		}
 		b64.WriteString(seq[2])
 	}

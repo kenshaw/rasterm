@@ -67,7 +67,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | --- | --- | --- |
 | [D1](#d1-rasterm-is-a-rewrite-of-bourgeoisbearrasterm-decided) | rasterm is a rewrite of BourgeoisBear/rasterm | Decided |
 | [D2](#d2-rasterm-writes-kitty-iterm-and-sixel-and-go-sixel-writes-the-sixel-decided) | rasterm writes Kitty, iTerm and Sixel, and go-sixel writes the Sixel | Decided |
-| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17 |
+| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17-amended-by-d21) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17. Amended by D21 |
 | [D4](#d4-the-default-encoder-takes-the-first-available-of-kitty-iterm-and-sixel-decided-amended-by-d12) | The default encoder takes the first available of Kitty, iTerm and Sixel | Decided. Amended by D12 |
 | [D5](#d5-iterm-gets-a-png-for-a-paletted-image-and-a-jpeg-for-any-other-decided) | iTerm gets a PNG for a paletted image, and a JPEG for any other | Decided |
 | [D6](#d6-a-sentinel-error-is-a-constant-of-type-error-decided) | A sentinel error is a constant of type Error | Decided |
@@ -84,6 +84,9 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D17](#d17-a-protocol-that-term_graphics-names-turns-off-each-other-protocol-decided-amends-d3-amends-d12) | A protocol that TERM_GRAPHICS names turns off each other protocol | Decided. Amends D3. Amends D12 |
 | [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14-amended-by-d19) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14. Amended by D19 |
 | [D19](#d19-the-zlib-stream-is-never-flushed-decided-amends-d18) | The zlib stream is never flushed | Decided. Amends D18 |
+| [D20](#d20-in-tmux-kitty-and-iterm-wrap-each-escape-sequence-in-the-dcs-passthrough-decided-amended-by-d21-amended-by-d22) | In tmux, Kitty and iTerm wrap each escape sequence in the DCS passthrough | Decided. Amended by D21. Amended by D22 |
+| [D21](#d21-in-tmux-kitty-and-iterm-ask-tmux-for-the-terminal-and-for-allow-passthrough-proposed-amends-d3-amends-d20-amended-by-d22) | In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough | Proposed. Amends D3. Amends D20. Amended by D22 |
+| [D22](#d22-in-tmux-kitty-draws-an-image-with-unicode-placeholder-cells-decided-amends-d20-amends-d21) | In tmux, Kitty draws an image with Unicode placeholder cells | Decided. Amends D20. Amends D21 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -103,7 +106,7 @@ The original package had its own Sixel encoder in `sixel.go`. The rewrite
 deleted it and calls `github.com/mattn/go-sixel` instead. Reason not
 recorded. The Kitty and iTerm encoders stay in this package.
 
-### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17.
+### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17. Amended by D21.
 
 Date: 2024-01-11. Commits: `8fbd4fc`, `640e270`, `5466e05`, `dc6c752`,
 `6c01d0a`.
@@ -535,6 +538,165 @@ image:
 
 Without the flush, a flat image is as small as with `ZlibAlways`, and a
 photo still goes raw.
+
+### D20. In tmux, Kitty and iTerm wrap each escape sequence in the DCS passthrough. Decided. Amended by D21. Amended by D22.
+
+Date: 2026-10-20. Source: xo/usql issue 594.
+
+On 2026-10-19, kcoyner reported that the logo and `\chart` of `usql` show
+in Ghostty and iTerm2, and show nothing in tmux 3.8 with
+`set -g allow-passthrough on`. tmux does not send the Kitty (APC) or the
+iTerm (OSC 1337) sequences to the outer terminal. It sends a sequence only
+in its DCS passthrough: `ESC P tmux;`, then the sequence with each ESC
+doubled, then `ESC \`. Ken asked on 2026-10-20 for a clean implementation
+in this package.
+
+The source of tmux 3.8 (`input.c`) gives these rules:
+
+- tmux writes the inside of the envelope to the outer terminal as it is,
+  after it changes each doubled ESC to one ESC.
+- tmux does this only when `allow-passthrough` is `on` or `all`. Its
+  default is `off`.
+- tmux drops a sequence longer than `input-buffer-size`, which is 1 MiB by
+  default.
+- tmux built with image support reads Sixel itself, and draws it in the
+  pane.
+
+The package follows them:
+
+- `inTmux` is true when `$TMUX` is set. tmux sets it in each pane.
+- In tmux, Kitty wraps the start sequence and each chunk in an envelope of
+  its own. Each envelope holds about 4 KiB, so a large image fits under the
+  limit of tmux.
+- In tmux, iTerm wraps its one sequence. A file of more than about 786 KB
+  gives a sequence over 1 MiB after base64, and tmux drops it unless
+  `input-buffer-size` is larger.
+- Sixel and half blocks are not wrapped. tmux draws Sixel itself, and
+  answers the request for device attributes that finds Sixel (D3). Half
+  blocks are text.
+- The data in each sequence is base64 or digits, and holds no ESC. So only
+  the start and the end of each sequence change, and the encoders build
+  them with no extra copy. Each image is still one call to `Write` (D9).
+
+`TestTmuxWrapsEachSequence` unwraps the output as tmux does, and compares it
+with the output outside tmux. On 2026-10-20, tmux 3.8 ran a program that
+wrote 4 Kitty sequences and 1 iTerm sequence. With `allow-passthrough on`,
+all 5 reached the outer terminal unchanged and in order. With it off, none
+did. An iTerm sequence of 937402 bytes reached the terminal, and one of
+1071598 bytes did not. `BenchmarkTmux` measures the cost. The time was the
+same within 2%, and Kitty sent 0.3% to 1.5% more bytes.
+
+This does not find the outer terminal from tmux. In tmux, `TERM_PROGRAM` is
+`tmux`, so the detection of Ghostty fails, and `TERM_GRAPHICS` must name the
+protocol. Nested tmux needs an envelope for each level, and this writes one.
+[BACKLOG.md](BACKLOG.md) holds the work that is left.
+
+### D21. In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough. Proposed. Amends D3. Amends D20. Amended by D22.
+
+Date: 2026-10-20.
+
+On 2026-10-20, Ken ran `iv` with D20 in tmux, in Ghostty and in Kitty. It
+printed "term graphics not available". In a tmux pane, `TERM_PROGRAM` is
+`tmux` and `TERM` is `screen-256color` or `tmux-256color`, so no encoder
+found its terminal (D3). With `TERM_GRAPHICS=kitty`, `iv` printed only the
+file names, because `allow-passthrough` was off, and tmux dropped each
+sequence. The variables of the environment do not help. Ken's tmux server
+started in Ghostty, so each pane had the `GHOSTTY_` variables, also the
+panes of the client in Kitty. A pane that Ken pasted also had `TMUX_PANE`
+and no `TMUX`.
+
+Ken did not choose an answer, so this decision is Proposed:
+
+- The package is in tmux when `$TMUX` or `$TMUX_PANE` is set. D20 read
+  `$TMUX` only.
+- In tmux, the Kitty and the iTerm encoders run
+  `tmux display-message -p -t $TMUX_PANE '#{client_termtype}|#{allow-passthrough}'`
+  once, with a limit of one second. `client_termtype` is the name that the
+  terminal gives tmux, such as `ghostty 1.3.1-arch2` or `kitty(0.49.2)`.
+- Kitty is available for a client whose name starts with `kitty` or
+  `ghostty`, and iTerm for `iterm2` or `wezterm`. Neither is available when
+  `allow-passthrough` is off. The caller then gets
+  `ErrTermGraphicsNotAvailable`, not an empty screen.
+- In tmux, the encoders do not read the other variables, because they can
+  belong to another terminal.
+- `TERM_GRAPHICS` still selects a protocol, and then tmux is not asked.
+
+This is the one place where the package starts a process. Outside tmux it
+starts none.
+
+`TestTmuxProtocol` and `TestTmuxDetection` check the rules. On 2026-10-20,
+the query on Ken's tmux server returned `ghostty 1.3.1-arch2|off`. A program
+in a tmux 3.8 pane, with an outer terminal that gave tmux the name
+`kitty(0.49.2)`, found Kitty with `allow-passthrough on` and no protocol with
+it off, with no `TERM_GRAPHICS`. `iv`, built with this package through a
+`go.work`, ran in a tmux 3.8 pane. With `allow-passthrough on`, all 10 of its
+Kitty sequences reached the outer terminal. With it off, none did.
+
+### D22. In tmux, Kitty draws an image with Unicode placeholder cells. Decided. Amends D20. Amends D21.
+
+Date: 2026-10-20.
+
+On 2026-10-20, with D21 and `allow-passthrough on`, `iv` drew each image of
+`testdata/png` in tmux in Ghostty, and each image was on top of the one
+before it. Kitty draws an image at the cursor of the terminal and moves the
+cursor below it. tmux does not know about the image, so its own cursor
+stays on the line after the name, and it moves the cursor of the terminal
+back before it writes the next name. tmux can also draw text over an image
+when it draws the pane again.
+
+Ken chose on 2026-10-20 to keep the rows of each image, with the Unicode
+placeholders of the Kitty protocol, which kitty 0.28 and later and Ghostty
+read. `kitten icat` and yazi draw images in tmux the same way. In tmux,
+when tmux reports the cell size of its client:
+
+1. The encoder sends the image once, with a virtual placement:
+   `a=T,U=1,q=2,i=<id>,c=<columns>,r=<rows>`. The number of columns and rows
+   is the size of the image divided by the size of a cell, rounded up. `q=2`
+   is on each sequence, so that the terminal writes no response for tmux to
+   read as input.
+2. The encoder then writes a row of placeholder cells for each row of the
+   image. A cell is `U+10EEEE`. The foreground color holds the low 24 bits
+   of the id. The first cell of each row has three diacritics, for its row,
+   for column 0 and for the high byte of the id. The other cells take them
+   from the cell on their left.
+3. tmux keeps the placeholder cells as text, so the rows of the image are
+   kept, and the terminal draws the image in them again each time that tmux
+   draws them.
+
+The id is random, and its low 24 bits are not 0. Image ids are shared by
+each program that writes to the terminal, so a new image seldom replaces one
+that is on the screen. `kittyDiacritics` is
+`gen/rowcolumn-diacritics.txt` of kitty v0.49.2, which has 297 characters.
+An image of more than 297 rows of cells, or a client with no cell size, is
+drawn at once as in D20. The query of D21 now also reads
+`#{client_cell_width}` and `#{client_cell_height}`, in the same call.
+
+`TestKittyPlaceholder` reads the output back as the terminal does: the keys
+of the first sequence, `q=2` on each chunk, the pixels, and the id, row and
+column of each row of cells. On 2026-10-20, `iv` drew `tux.png` and
+`rose.png` in a tmux 3.8 pane, with an outer terminal that gave tmux the name
+`kitty(0.49.2)` and cells of 10 x 20 pixels. Each image went out with its own
+id and `c=10,r=5` and `c=10,r=4`, and tmux drew the placeholder cells.
+`BenchmarkTmux` measures the cost. The time was the same within 5%, and the
+placeholder cells added 2% to 13% to the bytes.
+
+Ken drew each case of placeholder cells in Ghostty 1.3.1 in tmux on
+2026-10-20: a small id, a 32-bit id, and zlib RGBA. Each was correct.
+
+Ghostty 1.3.1 has a known fault with them. In tmux, after a clear of the
+terminal, Ghostty can close. Ken found it with these steps in one Ghostty
+window: `iv ./testdata/vips`, then `clear`, then `iv ./testdata/vips` again.
+Just before Ghostty closed, it logged `missing image for virtual placement`
+for two image ids of the package, once for each placeholder cell and each
+frame, and it then stopped answering the Wayland compositor. Outside tmux,
+`iv` does not make Ghostty close.
+
+The fault is related to Ghostty discussion 5453, which Ken reported on
+2025-01-31. In that report, Ghostty 1.1.0 closed on a clear or a
+`tput reset` after it evicted Kitty images to make space. That fault is
+fixed for images that are drawn at once. Placeholder cells use virtual
+placements, which take a different path. The cause is not known yet, and no
+report is filed. [BACKLOG.md](BACKLOG.md) holds the work.
 
 ## Open questions for Ken
 

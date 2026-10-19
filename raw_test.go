@@ -23,7 +23,7 @@ func TestJPEGIsSentAsIs(t *testing.T) {
 			if err := encoders[ITerm].Encode(&iterm, j); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if want := itermStart + base64.StdEncoding.EncodeToString(f.buf) + "\a\n"; iterm.String() != want {
+			if want := oscStart + base64.StdEncoding.EncodeToString(f.buf) + "\a\n"; iterm.String() != want {
 				t.Errorf("expected iterm to send the JPEG as is")
 			}
 			// the other encoders cannot send a jpeg, and must see the image
@@ -110,7 +110,7 @@ func TestRawIsSentAsIs(t *testing.T) {
 			if err := encoders[Kitty].Encode(&buf, test.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			want := string(appendKitty(nil, test.format, 3, 2, false, test.data)) + "\n"
+			want := string(appendKitty(nil, kittyImage{format: test.format, w: 3, h: 2}, test.data)) + "\n"
 			if buf.String() != want {
 				t.Errorf("expected:\n%q\ngot:\n%q", want, buf.String())
 			}
@@ -123,7 +123,7 @@ func TestRawIsSentAsIs(t *testing.T) {
 			}
 		})
 	}
-	if s := string(appendKitty(nil, kittyRGB, 3, 2, false, nil)); !strings.HasPrefix(s, "\x1b_Ga=T,f=24,s=3,v=2,m=1;") {
+	if s := string(appendKitty(nil, kittyImage{format: kittyRGB, w: 3, h: 2}, nil)); !strings.HasPrefix(s, "\x1b_Ga=T,f=24,s=3,v=2,m=1;") {
 		t.Errorf("expected the width and height in the start of a raw image, got: %q", s)
 	}
 }

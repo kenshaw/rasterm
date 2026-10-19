@@ -39,12 +39,21 @@ func NewKittyEncoder() Encoder {
 }
 
 // Available satisfies the [Encoder] interface.
+//
+// In tmux, the variables of the environment can belong to another terminal,
+// so the encoder asks tmux for the terminal of its client (D21).
 func (KittyEncoder) Available() bool {
-	return !otherTermGraphics("kitty") &&
-		(hasTermGraphics("kitty") ||
-			(os.Getenv("KITTY_PID") != "" && os.Getenv("KITTY_WINDOW_ID") != "") ||
-			strings.ToLower(os.Getenv("TERM")) == "xterm-kitty" ||
-			strings.ToLower(os.Getenv("TERM_PROGRAM")) == "ghostty")
+	switch {
+	case otherTermGraphics("kitty"):
+		return false
+	case hasTermGraphics("kitty"):
+		return true
+	case inTmux():
+		return tmuxClientOnce().protocol == "kitty"
+	}
+	return os.Getenv("KITTY_PID") != "" && os.Getenv("KITTY_WINDOW_ID") != "" ||
+		strings.ToLower(os.Getenv("TERM")) == "xterm-kitty" ||
+		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "ghostty"
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -52,7 +61,8 @@ func (KittyEncoder) Available() bool {
 // If img is a [PNGImage], an [RGBImage] or an [RGBAImage], its bytes are
 // sent as they are, in that order of preference. Otherwise the image is sent
 // as a PNG. Raw pixels are compressed with zlib as [KittyEncoder.Zlib] says.
-// The output is built in memory and written to w in one call.
+// In tmux, each escape sequence is wrapped in the DCS passthrough of tmux
+// (D20). The output is built in memory and written to w in one call.
 func (r KittyEncoder) Encode(w io.Writer, img image.Image) error {
 	src := getBuffer()
 	defer putBuffer(src)
@@ -69,9 +79,21 @@ func (r KittyEncoder) Encode(w io.Writer, img image.Image) error {
 	}
 	out := getBuffer()
 	defer putBuffer(out)
-	out.Grow(kittyLen(len(data)) + 1)
 	b := img.Bounds()
-	buf := appendKitty(out.AvailableBuffer(), format, b.Dx(), b.Dy(), z, data)
+	k := kittyImage{format: format, w: b.Dx(), h: b.Dy(), z: z, tmux: inTmux()}
+	if k.tmux {
+		// tmux does not know about an image, and draws over it, so the
+		// image is drawn with placeholder cells, which tmux keeps as text
+		c := tmuxClientOnce()
+		if cols, rows, ok := kittyCells(k.w, k.h, c.cellWidth, c.cellHeight); ok {
+			k.id, k.cols, k.rows = newKittyID(), cols, rows
+		}
+	}
+	out.Grow(kittyLen(len(data), k.tmux) + kittyPlaceholderLen(k.cols, k.rows) + 1)
+	buf := appendKitty(out.AvailableBuffer(), k, data)
+	if k.id != 0 {
+		buf = appendKittyPlaceholder(buf, k.id, k.cols, k.rows)
+	}
 	if !r.NoNewline {
 		buf = append(buf, '\n')
 	}
@@ -92,19 +114,29 @@ func NewITermEncoder() Encoder {
 }
 
 // Available satisfies the [Encoder] interface.
+//
+// In tmux, the variables of the environment can belong to another terminal,
+// so the encoder asks tmux for the terminal of its client (D21).
 func (ITermEncoder) Available() bool {
-	return !otherTermGraphics("iterm") &&
-		(hasTermGraphics("iterm") ||
-			strings.ToLower(os.Getenv("TERM")) == "mintty" ||
-			strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
-			strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm")
+	switch {
+	case otherTermGraphics("iterm"):
+		return false
+	case hasTermGraphics("iterm"):
+		return true
+	case inTmux():
+		return tmuxClientOnce().protocol == "iterm"
+	}
+	return strings.ToLower(os.Getenv("TERM")) == "mintty" ||
+		strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
+		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm"
 }
 
 // Encode satisfies the [Encoder] interface.
 //
 // If img is a [PNGImage] or a [JPEGImage], its bytes are sent as they are.
 // Otherwise a paletted image is sent as a PNG, and any other image as a JPEG.
-// The output is built in memory and written to w in one call.
+// In tmux, the escape sequence is wrapped in the DCS passthrough of tmux
+// (D20). The output is built in memory and written to w in one call.
 func (r ITermEncoder) Encode(w io.Writer, img image.Image) error {
 	src := getBuffer()
 	defer putBuffer(src)
@@ -114,19 +146,17 @@ func (r ITermEncoder) Encode(w io.Writer, img image.Image) error {
 	}
 	out := getBuffer()
 	defer putBuffer(out)
-	out.Grow(len(itermStart) + base64.StdEncoding.EncodedLen(len(data)) + 2)
-	buf := append(out.AvailableBuffer(), itermStart...)
+	start, end := itermSeq(inTmux())
+	out.Grow(len(start) + base64.StdEncoding.EncodedLen(len(data)) + len(end) + 1)
+	buf := append(out.AvailableBuffer(), start...)
 	buf = base64.StdEncoding.AppendEncode(buf, data)
-	buf = append(buf, '\a')
+	buf = append(buf, end...)
 	if !r.NoNewline {
 		buf = append(buf, '\n')
 	}
 	_, err = w.Write(buf)
 	return err
 }
-
-// itermStart starts an iTerm inline image.
-const itermStart = "\x1b]1337;File=inline=1:"
 
 // itermData returns the file that the iTerm encoder sends for img.
 func itermData(buf *bytes.Buffer, img image.Image) ([]byte, error) {
@@ -250,8 +280,8 @@ func kittyData(buf *bytes.Buffer, img image.Image) (int, []byte, error) {
 }
 
 // kittyStartMax is the length of the longest start of a Kitty image, with a
-// width and a height of 10 digits each.
-const kittyStartMax = len("\x1b_Ga=T,f=100,s=,v=,o=z,m=1;\x1b\\") + 20
+// width and a height of 10 digits each, in tmux.
+const kittyStartMax = len(apcTmuxStart+"a=T,f=100,s=,v=,o=z,m=1;"+apcTmuxEnd) + 20
 
 // kittyChunk is the number of bytes of PNG in each chunk. Its base64
 // encoding is 4096 bytes, which is the largest chunk that the Kitty protocol
@@ -259,38 +289,71 @@ const kittyStartMax = len("\x1b_Ga=T,f=100,s=,v=,o=z,m=1;\x1b\\") + 20
 const kittyChunk = 3072
 
 // kittyLen returns the largest length of the output of [appendKitty] for n
-// bytes of data.
-func kittyLen(n int) int {
+// bytes of data, in tmux when tmux is true.
+func kittyLen(n int, tmux bool) int {
+	start, end := kittySeq(tmux)
 	chunks := (n + kittyChunk - 1) / kittyChunk
-	return kittyStartMax + chunks*len("\x1b_Gm=0;\x1b\\") + base64.StdEncoding.EncodedLen(n)
+	return kittyStartMax + chunks*len(start+"m=0;"+end) + base64.StdEncoding.EncodedLen(n)
+}
+
+// kittyImage holds the keys of the first escape sequence of a Kitty image.
+type kittyImage struct {
+	// format is the format of the data, and w and h are the width and the
+	// height of raw pixels.
+	format, w, h int
+	// z is true when the data is one zlib stream.
+	z bool
+	// tmux is true when each sequence goes in the DCS passthrough of tmux.
+	tmux bool
+	// id, cols and rows are set for a virtual placement, which Unicode
+	// placeholder cells draw. id is 0 for an image that is drawn at once.
+	id         uint32
+	cols, rows int
 }
 
 // appendKitty appends the Kitty escape sequences that send data to buf. The
-// first sequence names the format, and for raw pixels the width w and the
-// height h, and o=z when z is true and data is one zlib stream. Each chunk
-// after it holds the base64 encoding of [kittyChunk] bytes of data.
-func appendKitty(buf []byte, format, w, h int, z bool, data []byte) []byte {
-	buf = append(buf, "\x1b_Ga=T,f="...)
-	buf = strconv.AppendInt(buf, int64(format), 10)
-	if format != kittyPNG {
+// first sequence holds the keys of k. Each chunk after it holds the base64
+// encoding of [kittyChunk] bytes of data. In tmux, each sequence is wrapped
+// in the DCS passthrough of tmux on its own, so that each is far below the
+// input limit of tmux. For a virtual placement, each sequence has q=2, so
+// that the terminal writes no response for tmux to read as input.
+func appendKitty(buf []byte, k kittyImage, data []byte) []byte {
+	start, end := kittySeq(k.tmux)
+	buf = append(buf, start...)
+	buf = append(buf, "a=T,f="...)
+	buf = strconv.AppendInt(buf, int64(k.format), 10)
+	if k.format != kittyPNG {
 		buf = append(buf, ",s="...)
-		buf = strconv.AppendInt(buf, int64(w), 10)
+		buf = strconv.AppendInt(buf, int64(k.w), 10)
 		buf = append(buf, ",v="...)
-		buf = strconv.AppendInt(buf, int64(h), 10)
+		buf = strconv.AppendInt(buf, int64(k.h), 10)
 	}
-	if z {
+	if k.z {
 		buf = append(buf, ",o=z"...)
 	}
-	buf = append(buf, ",m=1;\x1b\\"...)
+	if k.id != 0 {
+		buf = append(buf, ",U=1,q=2,i="...)
+		buf = strconv.AppendUint(buf, uint64(k.id), 10)
+		buf = append(buf, ",c="...)
+		buf = strconv.AppendInt(buf, int64(k.cols), 10)
+		buf = append(buf, ",r="...)
+		buf = strconv.AppendInt(buf, int64(k.rows), 10)
+	}
+	buf = append(buf, ",m=1;"...)
+	buf = append(buf, end...)
 	for i := 0; i < len(data); i += kittyChunk {
 		j, m := min(i+kittyChunk, len(data)), byte('1')
 		if j == len(data) {
 			m = '0'
 		}
-		buf = append(buf, "\x1b_Gm="...)
+		buf = append(buf, start...)
+		if k.id != 0 {
+			buf = append(buf, "q=2,"...)
+		}
+		buf = append(buf, "m="...)
 		buf = append(buf, m, ';')
 		buf = base64.StdEncoding.AppendEncode(buf, data[i:j])
-		buf = append(buf, "\x1b\\"...)
+		buf = append(buf, end...)
 	}
 	return buf
 }

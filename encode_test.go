@@ -23,12 +23,12 @@ func TestAppendKittyMatchesChunkEncode(t *testing.T) {
 			if err := chunkEncode(&want, data); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			got := appendKitty(nil, kittyPNG, 0, 0, false, data)
+			got := appendKitty(nil, kittyImage{format: kittyPNG}, data)
 			if !bytes.Equal(got, want.Bytes()) {
 				t.Errorf("expected the output of chunkEncode, got:\n%q\nwant:\n%q", got, want.Bytes())
 			}
-			if len(got) > kittyLen(n) {
-				t.Errorf("expected at most kittyLen %d, got: %d", kittyLen(n), len(got))
+			if len(got) > kittyLen(n, false) {
+				t.Errorf("expected at most kittyLen %d, got: %d", kittyLen(n, false), len(got))
 			}
 		})
 	}
@@ -85,14 +85,14 @@ func TestPNGIsSentAsIs(t *testing.T) {
 			if err := encoders[Kitty].Encode(&kitty, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if want := string(appendKitty(nil, kittyPNG, 0, 0, false, f.buf)) + "\n"; kitty.String() != want {
+			if want := string(appendKitty(nil, kittyImage{format: kittyPNG}, f.buf)) + "\n"; kitty.String() != want {
 				t.Errorf("expected kitty to send the PNG as is")
 			}
 			var iterm bytes.Buffer
 			if err := encoders[ITerm].Encode(&iterm, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if want := itermStart + b64 + "\a\n"; iterm.String() != want {
+			if want := oscStart + b64 + "\a\n"; iterm.String() != want {
 				t.Errorf("expected iterm to send the PNG as is")
 			}
 			// sixel cannot send a png, and must see the image that p wraps

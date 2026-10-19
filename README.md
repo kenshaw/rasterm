@@ -81,6 +81,36 @@ it in place of any graphics protocol.
 turns off each of them. Case, hyphens and a final `s` do not matter, so
 `half-blocks` and `HalfBlock` also select half blocks.
 
+## tmux
+
+In a tmux pane, the Kitty and iTerm encoders wrap each escape sequence in the
+DCS passthrough of tmux, so that tmux sends it to the terminal. tmux sends
+it only when its `allow-passthrough` option is on:
+
+```
+set -g allow-passthrough on
+```
+
+In tmux, the package asks tmux for the terminal that its client runs in, and
+finds Kitty, Ghostty, iTerm2 and WezTerm. When `allow-passthrough` is off,
+Kitty and iTerm are not available, and `Encode` returns
+`ErrTermGraphicsNotAvailable`. `TERM_GRAPHICS` still selects a protocol, and
+then tmux is not asked. tmux drops a sequence over its `input-buffer-size`,
+which is 1 MiB by default, so an iTerm image file over about 786 KB does not
+show. Kitty sends each chunk in a sequence of its own, so it has no such
+limit.
+
+tmux does not know about an image that goes through it, so it can draw over
+the image. In tmux, Kitty draws each image with Unicode placeholder cells,
+which kitty 0.28 and later and Ghostty read. tmux keeps the cells as text,
+so each image keeps its rows, and the terminal draws it again when tmux
+draws the pane again. An iTerm image in tmux does not keep its rows.
+
+Ghostty 1.3.1 can close after a clear of the terminal in tmux, when it shows
+images that use placeholder cells. This is a fault in Ghostty, related to
+[Ghostty discussion 5453](https://github.com/ghostty-org/ghostty/discussions/5453). tmux built with image support draws Sixel itself, and half blocks are
+text, so neither is wrapped.
+
 ## Performance
 
 Each encoder builds its output in memory and writes it in one call. Kitty

@@ -34,6 +34,8 @@ every other agent read the same rules. Edit this file, not that one.
 | changing the PNG that Kitty or iTerm sends | `png.go`, then D10 and D11 |
 | changing what an encoder sends as is | `png.go`, `jpeg.go` and `rgb.go`, then D13 and D14 |
 | changing the half-block encoder | `halfblock.go`, then D12. It does not scale and does not add a dependency |
+| changing how the output goes through tmux | `tmux.go`, then D20 and D21 |
+| changing how Kitty draws an image in tmux | `placeholder.go`, then D22. Never edit `placeholder_table.go` by hand |
 | adding an encoder | `encode.go`, `rasterm.go`, D4 and D12 |
 | writing a document, a code comment, an error message or a commit message | the `simple-english` skill. Load it first |
 | writing or reviewing Go code | the `go-pedantry` skill. Load it first, then the Go conventions below |
@@ -62,6 +64,12 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
 - `jpeg.go` holds `JPEGImage` and `JPEG`, and the scan of the JPEG markers
   (D13). `rgb.go` holds `RGBImage`, `RGBAImage`, `RGB` and `RGBA` (D14).
   `zlib.go` holds `ZlibMode`, which compresses raw pixels for Kitty (D18).
+- `tmux.go` holds the DCS passthrough of tmux, which Kitty and iTerm use
+  in a tmux pane (D20), and the query to tmux that finds the terminal (D21).
+  It is the only code that starts a process.
+- `placeholder.go` draws a Kitty image in tmux with Unicode placeholder
+  cells (D22). `placeholder_table.go` holds the 297 diacritics of kitty,
+  copied from kitty v0.49.2.
 - `png.go` holds `PNGImage` and `PNG` (D10), the PNG encoding that Kitty and
   iTerm share (D11), and the pool of output buffers.
 - `term_unix.go` asks the terminal for its device attributes, to find Sixel.
@@ -70,7 +78,9 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
 - `rasterm_test.go` and `example_test.go` hold the original tests and the
   example. `encode_test.go` holds the tests and the benchmarks of D9, D10
   and D11, `raw_test.go` holds those of D13 and D14, `zlib_test.go` holds
-  those of D18, and `halfblock_test.go` holds those of D12. `docs_test.go` holds the checks of D8.
+  those of D18, `tmux_test.go` holds those of D20 and D21, `placeholder_test.go` holds
+  those of D22, and `halfblock_test.go`
+  holds those of D12. `docs_test.go` holds the checks of D8.
 
 ## Go conventions
 
