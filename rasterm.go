@@ -151,6 +151,9 @@ const (
 	ErrNonTTY Error = "non tty"
 	// ErrTermResponseTimedOut is the term response timed out error.
 	ErrTermResponseTimedOut Error = "term response timed out"
+	// ErrUnexpectedTermResponse is the error when the terminal writes a byte
+	// that cannot be in the reply to a query.
+	ErrUnexpectedTermResponse Error = "unexpected term response"
 	// ErrUnknownTermType is the unknown term type error.
 	ErrUnknownTermType Error = "unknown term type"
 )

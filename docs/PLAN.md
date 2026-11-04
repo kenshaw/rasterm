@@ -67,7 +67,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | --- | --- | --- |
 | [D1](#d1-rasterm-is-a-rewrite-of-bourgeoisbearrasterm-decided) | rasterm is a rewrite of BourgeoisBear/rasterm | Decided |
 | [D2](#d2-rasterm-writes-kitty-iterm-and-sixel-and-go-sixel-writes-the-sixel-decided) | rasterm writes Kitty, iTerm and Sixel, and go-sixel writes the Sixel | Decided |
-| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17-amended-by-d21) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17. Amended by D21 |
+| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17-amended-by-d21-amended-by-d23) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17. Amended by D21. Amended by D23 |
 | [D4](#d4-the-default-encoder-takes-the-first-available-of-kitty-iterm-and-sixel-decided-amended-by-d12) | The default encoder takes the first available of Kitty, iTerm and Sixel | Decided. Amended by D12 |
 | [D5](#d5-iterm-gets-a-png-for-a-paletted-image-and-a-jpeg-for-any-other-decided) | iTerm gets a PNG for a paletted image, and a JPEG for any other | Decided |
 | [D6](#d6-a-sentinel-error-is-a-constant-of-type-error-decided) | A sentinel error is a constant of type Error | Decided |
@@ -87,6 +87,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D20](#d20-in-tmux-kitty-and-iterm-wrap-each-escape-sequence-in-the-dcs-passthrough-decided-amended-by-d21-amended-by-d22) | In tmux, Kitty and iTerm wrap each escape sequence in the DCS passthrough | Decided. Amended by D21. Amended by D22 |
 | [D21](#d21-in-tmux-kitty-and-iterm-ask-tmux-for-the-terminal-and-for-allow-passthrough-proposed-amends-d3-amends-d20-amended-by-d22) | In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough | Proposed. Amends D3. Amends D20. Amended by D22 |
 | [D22](#d22-in-tmux-kitty-draws-an-image-with-unicode-placeholder-cells-decided-amends-d20-amends-d21) | In tmux, Kitty draws an image with Unicode placeholder cells | Decided. Amends D20. Amends D21 |
+| [D23](#d23-the-query-for-sixel-waits-250-ms-and-reads-only-the-reply-decided-amends-d3) | The query for Sixel waits 250 ms, and reads only the reply | Decided. Amends D3 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -106,7 +107,7 @@ The original package had its own Sixel encoder in `sixel.go`. The rewrite
 deleted it and calls `github.com/mattn/go-sixel` instead. Reason not
 recorded. The Kitty and iTerm encoders stay in this package.
 
-### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17. Amended by D21.
+### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17. Amended by D21. Amended by D23.
 
 Date: 2024-01-11. Commits: `8fbd4fc`, `640e270`, `5466e05`, `dc6c752`,
 `6c01d0a`.
@@ -697,6 +698,45 @@ The fault is related to Ghostty discussion 5453, which Ken reported on
 fixed for images that are drawn at once. Placeholder cells use virtual
 placements, which take a different path. The cause is not known yet, and no
 report is filed. [BACKLOG.md](BACKLOG.md) holds the work.
+
+### D23. The query for Sixel waits 250 ms, and reads only the reply. Decided. Amends D3.
+
+Date: 2026-11-04. Source: the usql session, for Ken.
+
+On 2026-11-04, Ken reported through the `usql` session that the query for
+Sixel (D3) loses the first keys of the user. In an interactive session,
+`usql` calls `TermType.Available` for its logo, and the package asks the
+terminal for its device attributes. It put standard input in raw mode,
+wrote `ESC [ 0 c`, wrote `ESC [ 6 n` after 1/16 s, and then read up to 1 KB
+with no deadline. A terminal that does not answer, such as Emacs, a serial
+console or some multiplexers, left the read waiting. The next key, or the
+whole of a paste, was read and dropped. In a pseudo-terminal, `\echo hello`,
+typed 5 s after `usql` started, ran as `echo hello`. The cursor query of
+1/16 s could also reach the program as input, after the reply to the first
+query.
+
+Now the query works as follows:
+
+- The package waits for the reply with `poll`, for at most 250 ms, and then
+  there is no Sixel. A terminal on the same host answers in under a
+  millisecond, and one over SSH in one round trip.
+- It reads one byte at a time, and stops at the `c` that ends the reply, so
+  it never reads a byte after the reply. It stops at the first byte that
+  cannot be in the reply, with `ErrUnexpectedTermResponse`.
+- It writes no cursor query.
+- It asks the terminal once in each process.
+- It does not ask when `TERM` is `dumb`, when `INSIDE_EMACS` is set, or when
+  standard input or output is not a terminal.
+
+Two cases are still possible. A key that the user types before the reply
+comes is read and lost, because a terminal does not take bytes back. A reply
+that comes after 250 ms reaches the program as input.
+
+`term_linux_test.go` opens a pseudo-terminal, and the test plays the
+terminal. It checks a reply, a reply with input after it in the same write,
+no reply, and a byte that is not a reply. With no reply, the package waits
+100 ms in the test, and a line that the user types after it reaches the
+program whole.
 
 ## Open questions for Ken
 
