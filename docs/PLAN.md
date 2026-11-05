@@ -87,7 +87,8 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D20](#d20-in-tmux-kitty-and-iterm-wrap-each-escape-sequence-in-the-dcs-passthrough-decided-amended-by-d21-amended-by-d22) | In tmux, Kitty and iTerm wrap each escape sequence in the DCS passthrough | Decided. Amended by D21. Amended by D22 |
 | [D21](#d21-in-tmux-kitty-and-iterm-ask-tmux-for-the-terminal-and-for-allow-passthrough-proposed-amends-d3-amends-d20-amended-by-d22) | In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough | Proposed. Amends D3. Amends D20. Amended by D22 |
 | [D22](#d22-in-tmux-kitty-draws-an-image-with-unicode-placeholder-cells-decided-amends-d20-amends-d21) | In tmux, Kitty draws an image with Unicode placeholder cells | Decided. Amends D20. Amends D21 |
-| [D23](#d23-the-query-for-sixel-waits-250-ms-and-reads-only-the-reply-decided-amends-d3) | The query for Sixel waits 250 ms, and reads only the reply | Decided. Amends D3 |
+| [D23](#d23-the-query-for-sixel-waits-250-ms-and-reads-only-the-reply-decided-amends-d3-amended-by-d24) | The query for Sixel waits 250 ms, and reads only the reply | Decided. Amends D3. Amended by D24 |
+| [D24](#d24-the-keys-that-the-query-for-sixel-reads-go-back-to-the-program-through-pendinginput-proposed-amends-d23) | The keys that the query for Sixel reads go back to the program through PendingInput | Proposed. Amends D23 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -699,7 +700,7 @@ fixed for images that are drawn at once. Placeholder cells use virtual
 placements, which take a different path. The cause is not known yet, and no
 report is filed. [BACKLOG.md](BACKLOG.md) holds the work.
 
-### D23. The query for Sixel waits 250 ms, and reads only the reply. Decided. Amends D3.
+### D23. The query for Sixel waits 250 ms, and reads only the reply. Decided. Amends D3. Amended by D24.
 
 Date: 2026-11-04. Source: the usql session, for Ken.
 
@@ -737,6 +738,41 @@ terminal. It checks a reply, a reply with input after it in the same write,
 no reply, and a byte that is not a reply. With no reply, the package waits
 100 ms in the test, and a line that the user types after it reaches the
 program whole.
+
+### D24. The keys that the query for Sixel reads go back to the program through PendingInput. Proposed. Amends D23.
+
+Date: 2026-11-05. Source: the usql session, for Ken.
+
+D23 left one case: a key that the user typed before the reply came was read
+and lost. `usql` asks for Sixel before its line editor starts, so the first
+key of a fast typist or of a paste was lost. In a pseudo-terminal,
+`select 1;` that was written to `usql` at once ran as `elect 1;`.
+
+Now the query works as follows:
+
+- A byte that cannot be in the reply is a key. The package sets it aside,
+  and goes on waiting for the reply until the 250 ms of D23 pass.
+- A key that starts as the reply does, such as Escape or an arrow key, is
+  set aside at the first byte that does not fit. That byte can start the
+  reply, as the ESC of a reply after a key does.
+- When the wait ends with no reply, the start of a reply that did not end
+  is set aside too.
+- `PendingInput` returns the bytes that the package set aside, in order.
+  Each byte is returned once. A program that reads standard input after it
+  asks for Sixel must use them as its first input. `usql` gives them to its
+  line editor.
+
+The query no longer returns `ErrUnexpectedTermResponse`. The constant stays,
+because it is exported.
+
+A function was chosen over a field of `TermType`, because the query runs
+once in each process, in `hasSixelSupport`, and its keys belong to the
+process, not to a value. Ken did not choose the API, so this is Proposed.
+
+Two cases are still possible. A key `c` in the middle of a reply ends the
+reply early. A reply that comes after 250 ms reaches the program as input.
+`term_linux_test.go` checks keys before, around and in place of a reply,
+Escape and an arrow key before a reply, and keys with no reply.
 
 ## Open questions for Ken
 

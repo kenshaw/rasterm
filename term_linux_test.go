@@ -20,23 +20,34 @@ import (
 
 func TestTermAttributes(t *testing.T) {
 	tests := []struct {
-		name  string
-		reply string
-		attrs []int
-		rest  string
+		name    string
+		reply   string
+		attrs   []int
+		pending string
+		rest    string
 	}{
-		{"sixel", "\x1b[?62;4;22c", []int{62, 4, 22}, ""},
-		{"no sixel", "\x1b[?1;2c", []int{1, 2}, ""},
+		{"sixel", "\x1b[?62;4;22c", []int{62, 4, 22}, "", ""},
+		{"no sixel", "\x1b[?1;2c", []int{1, 2}, "", ""},
 		// input after the reply is not read, so the program gets it
-		{"input after the reply", "\x1b[?62;4cecho hello\n", []int{62, 4}, "echo hello\n"},
+		{"input after the reply", "\x1b[?62;4cecho hello\n", []int{62, 4}, "", "echo hello\n"},
+		// keys before the reply are set aside, and the reply is still read
+		{"keys before the reply", "select 1;\n\x1b[?62;4c", []int{62, 4}, "select 1;\n", ""},
+		{"keys around the reply", "s\x1b[?62;4celect 1;\n", []int{62, 4}, "s", "elect 1;\n"},
+		// an arrow key starts as the reply does
+		{"arrow key", "\x1b[A\x1b[?62;4c", []int{62, 4}, "\x1b[A", ""},
+		{"escape key", "\x1b\x1b[?62;4c", []int{62, 4}, "\x1b", ""},
+		{"escape and bracket", "\x1b[\x1b[?62;4c", []int{62, 4}, "\x1b[", ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			master, slave := openPty(t)
 			go answer(t, master, test.reply)
-			attrs, err := termAttributes(slave, slave, time.Second)
+			attrs, pending, err := termAttributes(slave, slave, time.Second)
 			if err != nil {
 				t.Fatalf("expected no error, got: %v", err)
+			}
+			if string(pending) != test.pending {
+				t.Errorf("expected the keys %q, got: %q", test.pending, pending)
 			}
 			if !slices.Equal(attrs, test.attrs) {
 				t.Errorf("expected %v, got: %v", test.attrs, attrs)
@@ -55,9 +66,12 @@ func TestTermAttributesNoAnswer(t *testing.T) {
 	master, slave := openPty(t)
 	go answer(t, master, "")
 	start := time.Now()
-	_, err := termAttributes(slave, slave, 100*time.Millisecond)
+	_, pending, err := termAttributes(slave, slave, 100*time.Millisecond)
 	if !errors.Is(err, ErrTermResponseTimedOut) {
 		t.Fatalf("expected %v, got: %v", ErrTermResponseTimedOut, err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("expected no keys, got: %q", pending)
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("expected to wait about 100ms, waited: %v", d)
@@ -71,17 +85,29 @@ func TestTermAttributesNoAnswer(t *testing.T) {
 	}
 }
 
-func TestTermAttributesNotAReply(t *testing.T) {
-	// a byte that cannot start a reply stops the read at once
+func TestTermAttributesKeysNoAnswer(t *testing.T) {
+	// keys from a user, and no answer from the terminal
 	master, slave := openPty(t)
-	go answer(t, master, "x")
-	start := time.Now()
-	_, err := termAttributes(slave, slave, time.Second)
-	if !errors.Is(err, ErrUnexpectedTermResponse) {
-		t.Fatalf("expected %v, got: %v", ErrUnexpectedTermResponse, err)
+	go answer(t, master, "\\echo\x1b[")
+	_, pending, err := termAttributes(slave, slave, 100*time.Millisecond)
+	if !errors.Is(err, ErrTermResponseTimedOut) {
+		t.Fatalf("expected %v, got: %v", ErrTermResponseTimedOut, err)
 	}
-	if d := time.Since(start); d > 500*time.Millisecond {
-		t.Errorf("expected to stop at the first byte, waited: %v", d)
+	if got, want := string(pending), "\\echo\x1b["; got != want {
+		t.Errorf("expected the keys %q, got: %q", want, got)
+	}
+}
+
+func TestPendingInput(t *testing.T) {
+	addPendingInput([]byte("se"))
+	addPendingInput(nil)
+	addPendingInput([]byte("lect"))
+	if got := string(PendingInput()); got != "select" {
+		t.Errorf("expected %q, got: %q", "select", got)
+	}
+	// each byte is returned once
+	if got := PendingInput(); got != nil {
+		t.Errorf("expected nil, got: %q", got)
 	}
 }
 

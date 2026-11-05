@@ -81,6 +81,20 @@ it in place of any graphics protocol.
 turns off each of them. Case, hyphens and a final `s` do not matter, so
 `half-blocks` and `HalfBlock` also select half blocks.
 
+## Keys typed during the query for Sixel
+
+To find Sixel, the package asks the terminal for its device attributes, once,
+the first time that `Available` asks about Sixel. It waits up to 250 ms for
+the answer. A key that the user types in that time is read, and the package
+sets it aside. A program that reads standard input, such as a line editor,
+must call `rasterm.PendingInput` after it calls `Available`, and use the
+bytes as its first input:
+
+```go
+ok := rasterm.Available()
+pending := rasterm.PendingInput() // keys typed during the query
+```
+
 ## tmux
 
 In a tmux pane, the Kitty and iTerm encoders wrap each escape sequence in the

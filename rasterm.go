@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // TermType is a terminal graphics type.
@@ -134,6 +135,37 @@ func Encode(w io.Writer, img image.Image) error {
 // Available returns true the [Default] encoder is available.
 func Available() bool {
 	return Default.Available()
+}
+
+// PendingInput returns the bytes that the package read from standard input
+// while it waited for the terminal to answer a query, and that are not part
+// of the answer. They are the keys that the user typed before the answer
+// came, in the order that the user typed them. A program that reads standard
+// input after it calls [Available], or [TermType.Available] for [Sixel] or
+// [Default], must use them as its first input. Each byte is returned once, so
+// a second call returns nil (D24).
+func PendingInput() []byte {
+	pendingInput.Lock()
+	defer pendingInput.Unlock()
+	buf := pendingInput.buf
+	pendingInput.buf = nil
+	return buf
+}
+
+// pendingInput holds the bytes that [PendingInput] returns.
+var pendingInput struct {
+	sync.Mutex
+	buf []byte
+}
+
+// addPendingInput adds buf to the bytes that [PendingInput] returns.
+func addPendingInput(buf []byte) {
+	if len(buf) == 0 {
+		return
+	}
+	pendingInput.Lock()
+	defer pendingInput.Unlock()
+	pendingInput.buf = append(pendingInput.buf, buf...)
 }
 
 // Error is an error.

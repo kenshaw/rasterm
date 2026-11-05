@@ -29,7 +29,7 @@ every other agent read the same rules. Edit this file, not that one.
 | asking why something is the way it is | the decision index in [docs/PLAN.md](docs/PLAN.md) |
 | about to decide something that is not written down | the open questions at the end of [docs/PLAN.md](docs/PLAN.md). Ask Ken |
 | looking for work that is known and not done | [docs/BACKLOG.md](docs/BACKLOG.md) |
-| changing how a protocol is detected | `Available` on each encoder in `encode.go`, `term_unix.go`, then D3 and D23 |
+| changing how a protocol is detected | `Available` on each encoder in `encode.go`, `term_unix.go`, then D3, D23 and D24 |
 | changing how an encoder writes its output | `encode.go`, then D9. Run the benchmarks below before and after |
 | changing the PNG that Kitty or iTerm sends | `png.go`, then D10 and D11 |
 | changing what an encoder sends as is | `png.go`, `jpeg.go` and `rgb.go`, then D13 and D14 |
@@ -73,7 +73,8 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
 - `png.go` holds `PNGImage` and `PNG` (D10), the PNG encoding that Kitty and
   iTerm share (D11), and the pool of output buffers.
 - `term_unix.go` asks the terminal for its device attributes, to find Sixel,
-  with a deadline, and reads only the reply (D23). `term_other.go` reports
+  with a deadline, and reads only the reply (D23). It sets aside the keys
+  that it reads, and `PendingInput` in `rasterm.go` returns them (D24). `term_other.go` reports
   no Sixel on other platforms.
 - `testdata/` holds the test images. Git does not convert them.
 - `rasterm_test.go` and `example_test.go` hold the original tests and the
@@ -81,7 +82,7 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
   and D11, `raw_test.go` holds those of D13 and D14, `zlib_test.go` holds
   those of D18, `tmux_test.go` holds those of D20 and D21, `placeholder_test.go` holds
   those of D22, and `halfblock_test.go`
-  holds those of D12. `term_linux_test.go` holds those of D23, in a pseudo-terminal, and
+  holds those of D12. `term_linux_test.go` holds those of D23 and D24, in a pseudo-terminal, and
   `docs_test.go` holds the checks of D8.
 
 ## Go conventions

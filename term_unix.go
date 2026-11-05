@@ -27,7 +27,8 @@ var hasSixelSupport = sync.OnceValue(func() bool {
 	if !canQueryTerm(os.Getenv) {
 		return false
 	}
-	attrs, err := termAttributes(os.Stdin, os.Stdout, termQueryTimeout)
+	attrs, pending, err := termAttributes(os.Stdin, os.Stdout, termQueryTimeout)
+	addPendingInput(pending)
 	if err != nil {
 		return false
 	}
@@ -47,7 +48,8 @@ func canQueryTerm(getenv func(string) string) bool {
 }
 
 // termAttributes asks the terminal for its device attributes, and returns
-// them. It waits up to timeout for the answer (D23).
+// them, and the bytes that it read that are not part of the answer. It waits
+// up to timeout for the answer (D23, D24).
 //
 //	CSI Ps c  Send Device Attributes (Primary DA).
 //		Ps = 0  or omitted ⇒  request attributes from terminal.  The
@@ -85,10 +87,10 @@ func canQueryTerm(getenv func(string) string) bool {
 // NOTE: must be connected to an actual terminal for this to work
 //
 // See: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h4-Functions-using-CSI-_-ordered-by-the-final-character-lparen-s-rparen:CSI-Ps-c.1CA3
-func termAttributes(in, out *os.File, timeout time.Duration) ([]int, error) {
-	reply, err := termQuery(in, out, "\x1b[0c", daReply, timeout)
+func termAttributes(in, out *os.File, timeout time.Duration) ([]int, []byte, error) {
+	reply, pending, err := termQuery(in, out, "\x1b[0c", daReply, timeout)
 	if err != nil {
-		return nil, err
+		return nil, pending, err
 	}
 	// the reply is ESC [ ? Ps ; ... ; Ps c
 	fields := strings.Split(string(reply[3:len(reply)-1]), ";")
@@ -98,7 +100,7 @@ func termAttributes(in, out *os.File, timeout time.Duration) ([]int, error) {
 			attrs = append(attrs, n)
 		}
 	}
-	return attrs, nil
+	return attrs, pending, nil
 }
 
 // daReply reports whether b, the start of a reply, can be the start of an
@@ -120,23 +122,25 @@ func daReply(b []byte) (ok, done bool) {
 }
 
 // termQuery writes the query req to out, and returns the reply that the
-// terminal writes to in. in is in raw mode while the package waits, so that
-// the reply is not shown, and it goes back to its mode after.
+// terminal writes to in, and the bytes that it read that are not part of the
+// reply. in is in raw mode while the package waits, so that the reply is not
+// shown, and it goes back to its mode after.
 //
 // The package reads the reply one byte at a time, and asks reply for each
 // byte if the reply is whole, so that it never reads a byte after the reply.
-// It stops at the first byte that cannot be in the reply. It waits up to
-// timeout, with poll, so that a terminal that does not answer does not hold
-// the program. A key that the user types before the reply is read and lost.
-// A reply that comes after timeout reaches the program as input (D23).
-func termQuery(in, out *os.File, req string, reply func([]byte) (ok, done bool), timeout time.Duration) (_ []byte, err error) {
+// A byte that cannot be in the reply is a key that the user typed before the
+// reply came. The package sets it aside, returns it with the reply, and waits
+// for the reply. It waits up to timeout, with poll, so that a terminal that
+// does not answer does not hold the program. A reply that comes after timeout
+// reaches the program as input (D23, D24).
+func termQuery(in, out *os.File, req string, reply func([]byte) (ok, done bool), timeout time.Duration) (_, pending []byte, err error) {
 	fd := int(in.Fd())
 	if !term.IsTerminal(fd) {
-		return nil, ErrNonTTY
+		return nil, nil, ErrNonTTY
 	}
 	old, err := term.MakeRaw(fd)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() {
 		if e := term.Restore(fd, old); err == nil {
@@ -144,14 +148,15 @@ func termQuery(in, out *os.File, req string, reply func([]byte) (ok, done bool),
 		}
 	}()
 	if _, err := out.WriteString(req); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	deadline := time.Now().Add(timeout)
 	var buf []byte
 	var b [1]byte
 	for {
 		if err := pollIn(fd, time.Until(deadline)); err != nil {
-			return nil, err
+			// the start of a reply that did not end can be keys too
+			return nil, append(pending, buf...), err
 		}
 		// one byte at a time, so that no byte after the reply is read
 		n, err := unix.Read(fd, b[:])
@@ -159,16 +164,25 @@ func termQuery(in, out *os.File, req string, reply func([]byte) (ok, done bool),
 		case errors.Is(err, unix.EINTR), errors.Is(err, unix.EAGAIN):
 			continue
 		case err != nil:
-			return nil, err
+			return nil, append(pending, buf...), err
 		case n == 0:
-			return nil, ErrTermResponseTimedOut
+			return nil, append(pending, buf...), ErrTermResponseTimedOut
 		}
 		buf = append(buf, b[0])
-		switch ok, done := reply(buf); {
-		case !ok:
-			return nil, ErrUnexpectedTermResponse
-		case done:
-			return buf, nil
+		ok, done := reply(buf)
+		if done {
+			return buf, pending, nil
+		}
+		if ok {
+			continue
+		}
+		// the bytes before b are keys, and b can start the reply, as the ESC
+		// of the reply after a key does
+		pending = append(pending, buf[:len(buf)-1]...)
+		buf = append(buf[:0], b[0])
+		if ok, _ := reply(buf); !ok {
+			pending = append(pending, b[0])
+			buf = buf[:0]
 		}
 	}
 }
