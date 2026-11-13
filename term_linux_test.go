@@ -2,8 +2,11 @@ package rasterm
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"image"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,42 +18,49 @@ import (
 )
 
 // These tests open a pseudo-terminal. The test plays the terminal on the
-// master side, and the package asks its question on the slave side, as on a
+// master side, and the package asks its questions on the slave side, as on a
 // real terminal (D23). Opening a pseudo-terminal this way works on Linux.
 
-func TestTermAttributes(t *testing.T) {
+func TestTermQuery(t *testing.T) {
+	const da1 = "\x1b[?62;4c"
 	tests := []struct {
 		name    string
 		reply   string
-		attrs   []int
+		replies []string
 		pending string
 		rest    string
 	}{
-		{"sixel", "\x1b[?62;4;22c", []int{62, 4, 22}, "", ""},
-		{"no sixel", "\x1b[?1;2c", []int{1, 2}, "", ""},
-		// input after the reply is not read, so the program gets it
-		{"input after the reply", "\x1b[?62;4cecho hello\n", []int{62, 4}, "", "echo hello\n"},
-		// keys before the reply are set aside, and the reply is still read
-		{"keys before the reply", "select 1;\n\x1b[?62;4c", []int{62, 4}, "select 1;\n", ""},
-		{"keys around the reply", "s\x1b[?62;4celect 1;\n", []int{62, 4}, "s", "elect 1;\n"},
-		// an arrow key starts as the reply does
-		{"arrow key", "\x1b[A\x1b[?62;4c", []int{62, 4}, "\x1b[A", ""},
-		{"escape key", "\x1b\x1b[?62;4c", []int{62, 4}, "\x1b", ""},
-		{"escape and bracket", "\x1b[\x1b[?62;4c", []int{62, 4}, "\x1b[", ""},
+		{"sixel", da1, []string{da1}, "", ""},
+		{"no sixel", "\x1b[?1;2c", []string{"\x1b[?1;2c"}, "", ""},
+		{"kitty", "\x1b_Gi=31;OK\x1b\\" + da1, []string{"\x1b_Gi=31;OK\x1b\\", da1}, "", ""},
+		{"xtversion", "\x1bP>|kitty(0.50.0)\x1b\\" + da1, []string{"\x1bP>|kitty(0.50.0)\x1b\\", da1}, "", ""},
+		// input after the answers is not read, so the program gets it
+		{"input after the reply", da1 + "echo hello\n", []string{da1}, "", "echo hello\n"},
+		// keys before the answers are set aside, and the answers are still read
+		{"keys before the reply", "select 1;\n" + da1, []string{da1}, "select 1;\n", ""},
+		{"keys around the reply", "s" + da1 + "elect 1;\n", []string{da1}, "s", "elect 1;\n"},
+		// an arrow key is an escape sequence that is not an answer
+		{"arrow key", "\x1b[A" + da1, []string{da1}, "\x1b[A", ""},
+		{"escape key", "\x1b\x1b[?62;4c", []string{da1}, "\x1b", ""},
+		{"escape and bracket", "\x1b[\x1b[?62;4c", []string{da1}, "\x1b[", ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			master, slave := openPty(t)
 			go answer(t, master, test.reply)
-			attrs, pending, err := termAttributes(slave, slave, time.Second)
+			replies, pending, err := termQuery(context.Background(), slave, slave, termQueries, time.Second)
 			if err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if string(pending) != test.pending {
 				t.Errorf("expected the keys %q, got: %q", test.pending, pending)
 			}
-			if !slices.Equal(attrs, test.attrs) {
-				t.Errorf("expected %v, got: %v", test.attrs, attrs)
+			var got []string
+			for _, r := range replies {
+				got = append(got, string(r))
+			}
+			if !slices.Equal(got, test.replies) {
+				t.Errorf("expected %q, got: %q", test.replies, got)
 			}
 			if test.rest != "" {
 				if got := readLine(t, slave); got != test.rest {
@@ -61,12 +71,12 @@ func TestTermAttributes(t *testing.T) {
 	}
 }
 
-func TestTermAttributesNoAnswer(t *testing.T) {
+func TestTermQueryNoAnswer(t *testing.T) {
 	// a terminal that does not answer, as Emacs or a serial console
 	master, slave := openPty(t)
 	go answer(t, master, "")
 	start := time.Now()
-	_, pending, err := termAttributes(slave, slave, 100*time.Millisecond)
+	_, pending, err := termQuery(context.Background(), slave, slave, termQueries, 100*time.Millisecond)
 	if !errors.Is(err, ErrTermResponseTimedOut) {
 		t.Fatalf("expected %v, got: %v", ErrTermResponseTimedOut, err)
 	}
@@ -85,11 +95,11 @@ func TestTermAttributesNoAnswer(t *testing.T) {
 	}
 }
 
-func TestTermAttributesKeysNoAnswer(t *testing.T) {
+func TestTermQueryKeysNoAnswer(t *testing.T) {
 	// keys from a user, and no answer from the terminal
 	master, slave := openPty(t)
 	go answer(t, master, "\\echo\x1b[")
-	_, pending, err := termAttributes(slave, slave, 100*time.Millisecond)
+	_, pending, err := termQuery(context.Background(), slave, slave, termQueries, 100*time.Millisecond)
 	if !errors.Is(err, ErrTermResponseTimedOut) {
 		t.Fatalf("expected %v, got: %v", ErrTermResponseTimedOut, err)
 	}
@@ -98,45 +108,67 @@ func TestTermAttributesKeysNoAnswer(t *testing.T) {
 	}
 }
 
-func TestPendingInput(t *testing.T) {
-	addPendingInput([]byte("se"))
-	addPendingInput(nil)
-	addPendingInput([]byte("lect"))
-	if got := string(PendingInput()); got != "select" {
-		t.Errorf("expected %q, got: %q", "select", got)
+func TestTermQueryCancel(t *testing.T) {
+	// a cancel stops the wait before the timeout
+	master, slave := openPty(t)
+	go answer(t, master, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _, err := termQuery(ctx, slave, slave, termQueries, 10*time.Second)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected %v, got: %v", context.DeadlineExceeded, err)
 	}
-	// each byte is returned once
-	if got := PendingInput(); got != nil {
-		t.Errorf("expected nil, got: %q", got)
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("expected to stop after about 50ms, waited: %v", d)
 	}
 }
 
-func TestDAReply(t *testing.T) {
-	tests := []struct {
-		s        string
-		ok, done bool
-	}{
-		{"\x1b", true, false},
-		{"\x1b[", true, false},
-		{"\x1b[?", true, false},
-		{"\x1b[?62", true, false},
-		{"\x1b[?62;4", true, false},
-		{"\x1b[?62;4c", true, true},
-		{"x", false, false},
-		{"\x1b]", false, false},
-		{"\x1b[1", false, false},
-		{"\x1b[?62R", false, false},
+func TestDetectQuery(t *testing.T) {
+	master, slave := openPty(t)
+	go answer(t, master, "k\x1b_Gi=31;OK\x1b\\\x1b_Gi=32,e=a;OK\x1b\\\x1bP>|kitty(0.50.0)\x1b\\\x1b[?1;0;1024S\x1b[6;20;10t\x1b[?62;4c")
+	env := map[string]string{"TERM": "xterm-kitty"}
+	term, pending, err := Detect(context.Background(),
+		WithInput(slave), WithOutput(slave), WithTimeout(time.Second),
+		WithGetenv(func(k string) string { return env[k] }))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
 	}
-	for _, test := range tests {
-		t.Run(strconv.Quote(test.s), func(t *testing.T) {
-			if ok, done := daReply([]byte(test.s)); ok != test.ok || done != test.done {
-				t.Errorf("expected %t %t, got: %t %t", test.ok, test.done, ok, done)
-			}
-		})
+	exp := Terminal{
+		Protocol:       Kitty,
+		Source:         SourceQuery,
+		Protocols:      []Protocol{Kitty, Sixel},
+		Name:           "kitty",
+		Version:        "0.50.0",
+		Cell:           image.Pt(10, 20),
+		SixelColors:    1024,
+		KittyAnimation: true,
+	}
+	if !reflect.DeepEqual(term, exp) {
+		t.Errorf("expected %+v, got: %+v", exp, term)
+	}
+	if string(pending) != "k" {
+		t.Errorf("expected the keys %q, got: %q", "k", pending)
+	}
+}
+
+func TestDetectNoAnswerReadsTheEnvironment(t *testing.T) {
+	master, slave := openPty(t)
+	go answer(t, master, "")
+	env := map[string]string{"TERM_PROGRAM": "WezTerm"}
+	term, _, err := Detect(context.Background(),
+		WithInput(slave), WithOutput(slave), WithTimeout(50*time.Millisecond),
+		WithGetenv(func(k string) string { return env[k] }))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if term.Protocol != ITerm || term.Source != SourceEnv {
+		t.Errorf("expected iterm from env, got: %v from %v", term.Protocol, term.Source)
 	}
 }
 
 func TestCanQueryTerm(t *testing.T) {
+	_, slave := openPty(t)
 	tests := []struct {
 		name string
 		env  map[string]string
@@ -146,10 +178,13 @@ func TestCanQueryTerm(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if canQueryTerm(func(k string) string { return test.env[k] }) {
+			if canQueryTerm(slave, slave, func(k string) string { return test.env[k] }) {
 				t.Errorf("expected no query")
 			}
 		})
+	}
+	if !canQueryTerm(slave, slave, func(string) string { return "" }) {
+		t.Errorf("expected a query on a pseudo-terminal")
 	}
 }
 
@@ -182,7 +217,7 @@ func openPty(t *testing.T) (*os.File, *os.File) {
 func answer(t *testing.T, master *os.File, reply string) {
 	var got []byte
 	buf := make([]byte, 64)
-	for !bytes.Contains(got, []byte("\x1b[0c")) {
+	for !bytes.Contains(got, []byte("\x1b[c")) {
 		n, err := master.Read(buf)
 		if err != nil {
 			return
@@ -197,7 +232,7 @@ func answer(t *testing.T, master *os.File, reply string) {
 // readLine reads one line from slave, which is back in canonical mode.
 func readLine(t *testing.T, slave *os.File) string {
 	t.Helper()
-	if err := pollIn(int(slave.Fd()), 2*time.Second); err != nil {
+	if err := pollIn(context.Background(), int(slave.Fd()), time.Now().Add(2*time.Second)); err != nil {
 		t.Fatalf("expected input for the program, got: %v", err)
 	}
 	buf := make([]byte, 256)

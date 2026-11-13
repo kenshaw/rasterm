@@ -6,10 +6,7 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
-	"os"
 	"strconv"
-	"strings"
-	"sync"
 
 	"github.com/mattn/go-sixel"
 )
@@ -17,43 +14,26 @@ import (
 // DefaultJPEGQuality is the default JPEG encode quality.
 var DefaultJPEGQuality = 93
 
-// Encoder provides a common interface for terminal graphic encoders.
+// Encoder encodes an image for a terminal.
 type Encoder interface {
-	Available() bool
-	Encode(io.Writer, image.Image) error
+	Encode(w io.Writer, img image.Image) error
 }
 
-// KittyEncoder is a Kitty terminal graphics encoder.
+// KittyEncoder encodes an image with the Kitty graphics protocol. It
+// satisfies the [Encoder] interface. [Terminal.Encoder] sets it up for the
+// terminal.
+//
+// See: https://sw.kovidgoyal.net/kitty/graphics-protocol/
 type KittyEncoder struct {
+	// NoNewline writes no newline after the image.
 	NoNewline bool
-
 	// Zlib is how raw pixels are compressed. The zero value is [ZlibAuto].
 	Zlib ZlibMode
-}
-
-// NewKittyEncoder creates a Kitty terminal graphics encoder.
-//
-// See: https://sw.kovidgoyal.net/kitty/graphics-protocol.html
-func NewKittyEncoder() Encoder {
-	return KittyEncoder{}
-}
-
-// Available satisfies the [Encoder] interface.
-//
-// In tmux, the variables of the environment can belong to another terminal,
-// so the encoder asks tmux for the terminal of its client (D21).
-func (KittyEncoder) Available() bool {
-	switch {
-	case otherTermGraphics("kitty"):
-		return false
-	case hasTermGraphics("kitty"):
-		return true
-	case inTmux():
-		return tmuxClientOnce().protocol == "kitty"
-	}
-	return os.Getenv("KITTY_PID") != "" && os.Getenv("KITTY_WINDOW_ID") != "" ||
-		strings.ToLower(os.Getenv("TERM")) == "xterm-kitty" ||
-		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "ghostty"
+	// Tmux wraps each escape sequence in the DCS passthrough of tmux (D20).
+	Tmux bool
+	// Cell is the size of a cell in pixels. In tmux, when it is known, the
+	// image is drawn with Unicode placeholder cells (D22).
+	Cell image.Point
 }
 
 // Encode satisfies the [Encoder] interface.
@@ -61,82 +41,70 @@ func (KittyEncoder) Available() bool {
 // If img is a [PNGImage], an [RGBImage] or an [RGBAImage], its bytes are
 // sent as they are, in that order of preference. Otherwise the image is sent
 // as a PNG. Raw pixels are compressed with zlib as [KittyEncoder.Zlib] says.
-// In tmux, each escape sequence is wrapped in the DCS passthrough of tmux
-// (D20). The output is built in memory and written to w in one call.
+// The output is built in memory and written to w in one call (D9).
 func (r KittyEncoder) Encode(w io.Writer, img image.Image) error {
+	return r.encode(w, img, kittyImage{action: 'T'}, r.Tmux && r.Cell.X > 0 && r.Cell.Y > 0)
+}
+
+// encode writes img to w with the keys of k. When virtual is true, the image
+// gets an id and a virtual placement, and is drawn with placeholder cells. k
+// with an id keeps it.
+func (r KittyEncoder) encode(w io.Writer, img image.Image, k kittyImage, virtual bool) error {
 	src := getBuffer()
 	defer putBuffer(src)
 	format, data, err := kittyData(src, img)
 	if err != nil {
 		return err
 	}
-	var z bool
 	if format != kittyPNG {
 		// src holds no png here, so the zlib stream can use it
-		if data, z, err = zlibData(src, data, r.Zlib); err != nil {
+		if data, k.z, err = zlibData(src, data, r.Zlib); err != nil {
 			return err
 		}
 	}
 	out := getBuffer()
 	defer putBuffer(out)
 	b := img.Bounds()
-	k := kittyImage{format: format, w: b.Dx(), h: b.Dy(), z: z, tmux: inTmux()}
-	if k.tmux {
+	k.format, k.w, k.h, k.tmux = format, b.Dx(), b.Dy(), r.Tmux
+	if virtual {
 		// tmux does not know about an image, and draws over it, so the
 		// image is drawn with placeholder cells, which tmux keeps as text
-		c := tmuxClientOnce()
-		if cols, rows, ok := kittyCells(k.w, k.h, c.cellWidth, c.cellHeight); ok {
-			k.id, k.cols, k.rows = newKittyID(), cols, rows
+		if cols, rows, ok := kittyCells(k.w, k.h, r.Cell.X, r.Cell.Y); ok {
+			if k.id == 0 {
+				k.id = newKittyID()
+			}
+			k.virtual, k.cols, k.rows = true, cols, rows
 		}
 	}
-	out.Grow(kittyLen(len(data), k.tmux) + kittyPlaceholderLen(k.cols, k.rows) + 1)
+	out.Grow(kittyLen(len(data), k.tmux) + kittyPlaceholderLen(k.cols, k.rows) + len(k.after) + 1)
 	buf := appendKitty(out.AvailableBuffer(), k, data)
-	if k.id != 0 {
+	buf = append(buf, k.after...)
+	if k.virtual {
 		buf = appendKittyPlaceholder(buf, k.id, k.cols, k.rows)
 	}
-	if !r.NoNewline {
+	if !r.NoNewline && k.action == 'T' {
 		buf = append(buf, '\n')
 	}
 	_, err = w.Write(buf)
 	return err
 }
 
-// ITermEncoder is a iTerm terminal graphics encoder.
+// ITermEncoder encodes an image with the inline images protocol of iTerm2.
+// It satisfies the [Encoder] interface.
 //
 // See: https://iterm2.com/documentation-images.html
 type ITermEncoder struct {
+	// NoNewline writes no newline after the image.
 	NoNewline bool
-}
-
-// NewITermEncoder creates a iTerm terminal graphics encoder.
-func NewITermEncoder() Encoder {
-	return ITermEncoder{}
-}
-
-// Available satisfies the [Encoder] interface.
-//
-// In tmux, the variables of the environment can belong to another terminal,
-// so the encoder asks tmux for the terminal of its client (D21).
-func (ITermEncoder) Available() bool {
-	switch {
-	case otherTermGraphics("iterm"):
-		return false
-	case hasTermGraphics("iterm"):
-		return true
-	case inTmux():
-		return tmuxClientOnce().protocol == "iterm"
-	}
-	return strings.ToLower(os.Getenv("TERM")) == "mintty" ||
-		strings.ToLower(os.Getenv("LC_TERMINAL")) == "iterm2" ||
-		strings.ToLower(os.Getenv("TERM_PROGRAM")) == "wezterm"
+	// Tmux wraps the escape sequence in the DCS passthrough of tmux (D20).
+	Tmux bool
 }
 
 // Encode satisfies the [Encoder] interface.
 //
 // If img is a [PNGImage] or a [JPEGImage], its bytes are sent as they are.
-// Otherwise a paletted image is sent as a PNG, and any other image as a JPEG.
-// In tmux, the escape sequence is wrapped in the DCS passthrough of tmux
-// (D20). The output is built in memory and written to w in one call.
+// Otherwise a paletted image is sent as a PNG, and any other image as a JPEG
+// (D5). The output is built in memory and written to w in one call (D9).
 func (r ITermEncoder) Encode(w io.Writer, img image.Image) error {
 	src := getBuffer()
 	defer putBuffer(src)
@@ -146,7 +114,7 @@ func (r ITermEncoder) Encode(w io.Writer, img image.Image) error {
 	}
 	out := getBuffer()
 	defer putBuffer(out)
-	start, end := itermSeq(inTmux())
+	start, end := itermSeq(r.Tmux)
 	out.Grow(len(start) + base64.StdEncoding.EncodedLen(len(data)) + len(end) + 1)
 	buf := append(out.AvailableBuffer(), start...)
 	buf = base64.StdEncoding.AppendEncode(buf, data)
@@ -176,28 +144,20 @@ func itermData(buf *bytes.Buffer, img image.Image) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SixelEncoder is a Sixel terminal graphics encoder.
+// SixelEncoder encodes an image with Sixel. It satisfies the [Encoder]
+// interface.
 //
 // See: https://saitoha.github.io/libsixel/
 type SixelEncoder struct {
+	// NoNewline writes no newline after the image.
 	NoNewline bool
-}
-
-// NewSixelEncoder creates a Sixel terminal graphics encoder.
-func NewSixelEncoder() Encoder {
-	return SixelEncoder{}
-}
-
-// Available satisfies the [Encoder] interface.
-func (SixelEncoder) Available() bool {
-	return !otherTermGraphics("sixel") && (hasTermGraphics("sixel") || hasSixelSupport())
 }
 
 // Encode satisfies the [Encoder] interface.
 //
 // The output and the newline are built in memory and written to w in one
-// call. go-sixel before v0.0.14 made a call to Write for each few bytes when w
-// was not an [os.File].
+// call (D9). go-sixel before v0.0.14 made a call to Write for each few bytes
+// when w was not an [os.File].
 func (r SixelEncoder) Encode(w io.Writer, img image.Image) error {
 	buf := getBuffer()
 	defer putBuffer(buf)
@@ -209,45 +169,6 @@ func (r SixelEncoder) Encode(w io.Writer, img image.Image) error {
 	}
 	_, err := w.Write(buf.Bytes())
 	return err
-}
-
-// DefaultEncoder wraps multiple terminal graphic encoders.
-type DefaultEncoder struct {
-	v    []Encoder
-	r    Encoder
-	once sync.Once
-}
-
-// NewDefaultEncoder creates a wrapper for multiple terminal graphic encoders.
-func NewDefaultEncoder(v ...Encoder) *DefaultEncoder {
-	return &DefaultEncoder{
-		v: v,
-	}
-}
-
-// init selects the first available encoder. It leaves r.r nil when none is
-// available.
-func (r *DefaultEncoder) init() {
-	for _, z := range r.v {
-		if z.Available() {
-			r.r = z
-			return
-		}
-	}
-}
-
-// Available satisfies the [Encoder] interface.
-func (r *DefaultEncoder) Available() bool {
-	r.once.Do(r.init)
-	return r.r != nil
-}
-
-// Encode satisfies the [Encoder] interface.
-func (r *DefaultEncoder) Encode(w io.Writer, img image.Image) error {
-	if r.once.Do(r.init); r.r == nil {
-		return ErrTermGraphicsNotAvailable
-	}
-	return r.r.Encode(w, img)
 }
 
 // jpegEncode encodes a image to w as a jpeg using [DefaultJPEGQuality].
@@ -279,9 +200,9 @@ func kittyData(buf *bytes.Buffer, img image.Image) (int, []byte, error) {
 	return kittyPNG, data, err
 }
 
-// kittyStartMax is the length of the longest start of a Kitty image, with a
-// width and a height of 10 digits each, in tmux.
-const kittyStartMax = len(apcTmuxStart+"a=T,f=100,s=,v=,o=z,m=1;"+apcTmuxEnd) + 20
+// kittyStartMax is the length of the longest start of a Kitty image or
+// frame, with each number at its longest, in tmux.
+const kittyStartMax = len(apcTmuxStart+"a=T,f=100,s=,v=,o=z,U=1,q=2,i=,c=,r=,x=,y=,X=1,Y=,z=,m=1;"+apcTmuxEnd) + 11*10
 
 // kittyChunk is the number of bytes of PNG in each chunk. Its base64
 // encoding is 4096 bytes, which is the largest chunk that the Kitty protocol
@@ -293,11 +214,15 @@ const kittyChunk = 3072
 func kittyLen(n int, tmux bool) int {
 	start, end := kittySeq(tmux)
 	chunks := (n + kittyChunk - 1) / kittyChunk
-	return kittyStartMax + chunks*len(start+"m=0;"+end) + base64.StdEncoding.EncodedLen(n)
+	return kittyStartMax + chunks*len(start+"a=f,q=2,m=0;"+end) + base64.StdEncoding.EncodedLen(n)
 }
 
-// kittyImage holds the keys of the first escape sequence of a Kitty image.
+// kittyImage holds the keys of the first escape sequence of a Kitty image or
+// of a frame of an animation.
 type kittyImage struct {
+	// action is 'T' to send and show an image, or 'f' to add a frame. 0 is
+	// 'T'.
+	action byte
 	// format is the format of the data, and w and h are the width and the
 	// height of raw pixels.
 	format, w, h int
@@ -305,22 +230,43 @@ type kittyImage struct {
 	z bool
 	// tmux is true when each sequence goes in the DCS passthrough of tmux.
 	tmux bool
-	// id, cols and rows are set for a virtual placement, which Unicode
-	// placeholder cells draw. id is 0 for an image that is drawn at once.
-	id         uint32
+	// id is the image id, or 0 for an image with no id. Each sequence of an
+	// image with an id has q=2, so that the terminal writes no response
+	// that tmux or the program reads as input.
+	id uint32
+	// virtual is true for a virtual placement of cols x rows cells, which
+	// Unicode placeholder cells draw.
+	virtual    bool
 	cols, rows int
+	// x and y are where a frame goes in the root frame. base is the frame
+	// that gives the other pixels, or 0 for none. bg is the background
+	// color, as 0xRRGGBBAA, when hasBg is true. replace replaces the pixels
+	// under the frame. gap is the gap of the frame in ms.
+	x, y    int
+	base    int
+	bg      uint32
+	hasBg   bool
+	replace bool
+	gap     int
+	// after is written after the image, before the placeholder cells.
+	after []byte
 }
 
 // appendKitty appends the Kitty escape sequences that send data to buf. The
 // first sequence holds the keys of k. Each chunk after it holds the base64
 // encoding of [kittyChunk] bytes of data. In tmux, each sequence is wrapped
 // in the DCS passthrough of tmux on its own, so that each is far below the
-// input limit of tmux. For a virtual placement, each sequence has q=2, so
-// that the terminal writes no response for tmux to read as input.
+// input limit of tmux. Each chunk of a frame repeats a=f, as the protocol
+// asks.
 func appendKitty(buf []byte, k kittyImage, data []byte) []byte {
+	if k.action == 0 {
+		k.action = 'T'
+	}
 	start, end := kittySeq(k.tmux)
 	buf = append(buf, start...)
-	buf = append(buf, "a=T,f="...)
+	buf = append(buf, "a="...)
+	buf = append(buf, k.action)
+	buf = append(buf, ",f="...)
 	buf = strconv.AppendInt(buf, int64(k.format), 10)
 	if k.format != kittyPNG {
 		buf = append(buf, ",s="...)
@@ -331,13 +277,20 @@ func appendKitty(buf []byte, k kittyImage, data []byte) []byte {
 	if k.z {
 		buf = append(buf, ",o=z"...)
 	}
-	if k.id != 0 {
+	switch {
+	case k.virtual:
 		buf = append(buf, ",U=1,q=2,i="...)
 		buf = strconv.AppendUint(buf, uint64(k.id), 10)
 		buf = append(buf, ",c="...)
 		buf = strconv.AppendInt(buf, int64(k.cols), 10)
 		buf = append(buf, ",r="...)
 		buf = strconv.AppendInt(buf, int64(k.rows), 10)
+	case k.id != 0:
+		buf = append(buf, ",q=2,i="...)
+		buf = strconv.AppendUint(buf, uint64(k.id), 10)
+	}
+	if k.action == 'f' {
+		buf = appendKittyFrame(buf, k)
 	}
 	buf = append(buf, ",m=1;"...)
 	buf = append(buf, end...)
@@ -347,6 +300,9 @@ func appendKitty(buf []byte, k kittyImage, data []byte) []byte {
 			m = '0'
 		}
 		buf = append(buf, start...)
+		if k.action == 'f' {
+			buf = append(buf, "a=f,"...)
+		}
 		if k.id != 0 {
 			buf = append(buf, "q=2,"...)
 		}
@@ -358,33 +314,27 @@ func appendKitty(buf []byte, k kittyImage, data []byte) []byte {
 	return buf
 }
 
-// hasTermGraphics returns true when the $ENV{TERM_GRAPHICS} is the specified
-// type.
-func hasTermGraphics(typ string) bool {
-	return typ == termGraphics()
-}
-
-// otherTermGraphics returns true when $ENV{TERM_GRAPHICS} names a protocol
-// other than typ, or none. The encoder for typ is then not available,
-// whatever else the environment says, so that the variable selects one
-// protocol (D3).
-func otherTermGraphics(typ string) bool {
-	return otherProtocol(termGraphics(), typ)
-}
-
-// otherProtocol returns true when v, a value of $ENV{TERM_GRAPHICS}, names a
-// protocol other than typ, or none. A value that names no protocol, such as
-// the empty string, leaves each encoder to detect its protocol.
-func otherProtocol(v, typ string) bool {
-	switch v {
-	case "kitty", "iterm", "sixel", "halfblock", "none":
-		return v != typ
+// appendKittyFrame appends the keys of a frame in k to buf.
+func appendKittyFrame(buf []byte, k kittyImage) []byte {
+	if k.x != 0 {
+		buf = append(buf, ",x="...)
+		buf = strconv.AppendInt(buf, int64(k.x), 10)
 	}
-	return false
+	if k.y != 0 {
+		buf = append(buf, ",y="...)
+		buf = strconv.AppendInt(buf, int64(k.y), 10)
+	}
+	if k.base != 0 {
+		buf = append(buf, ",c="...)
+		buf = strconv.AppendInt(buf, int64(k.base), 10)
+	}
+	if k.hasBg {
+		buf = append(buf, ",Y="...)
+		buf = strconv.AppendUint(buf, uint64(k.bg), 10)
+	}
+	if k.replace {
+		buf = append(buf, ",X=1"...)
+	}
+	buf = append(buf, ",z="...)
+	return strconv.AppendInt(buf, int64(k.gap), 10)
 }
-
-// termGraphics returns $ENV{TERM_GRAPHICS} as [normalize] returns it. It
-// reads the environment once.
-var termGraphics = sync.OnceValue(func() string {
-	return normalize(os.Getenv("TERM_GRAPHICS"))
-})

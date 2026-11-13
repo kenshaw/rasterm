@@ -3,3 +3,6 @@
 
 # testdata holds images, which git must not convert
 /testdata/** -text
+
+# except the record of the images, which is text
+/testdata/README.md text eol=lf

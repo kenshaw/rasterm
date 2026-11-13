@@ -1,6 +1,8 @@
 package rasterm
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -330,4 +332,36 @@ func read(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestEachTestImageHasAProvenance holds the record of testdata/README.md. Each
+// image in testdata/ needs a row there, with its source, its license and its
+// checksum, so that nobody adds an image of unknown origin.
+func TestEachTestImageHasAProvenance(t *testing.T) {
+	doc := read(t, filepath.Join("testdata", testdataReadme))
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	for _, e := range entries {
+		switch {
+		case e.Name() == testdataReadme:
+			continue
+		case e.IsDir():
+			t.Errorf("testdata/%s is a folder. Put each image in testdata/", e.Name())
+			continue
+		}
+		buf, err := os.ReadFile(filepath.Join("testdata", e.Name()))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		sum := sha256.Sum256(buf)
+		row := fmt.Sprintf("| `%s` |", e.Name())
+		switch i := strings.Index(doc, row); {
+		case i == -1:
+			t.Errorf("expected a row for testdata/%s in testdata/README.md, with its source, license and SHA-256", e.Name())
+		case !strings.Contains(doc[i:i+strings.IndexByte(doc[i:], '\n')], hex.EncodeToString(sum[:])):
+			t.Errorf("expected the row of testdata/%s in testdata/README.md to hold its SHA-256 %x", e.Name(), sum)
+		}
+	}
 }

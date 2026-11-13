@@ -20,7 +20,7 @@ func TestJPEGIsSentAsIs(t *testing.T) {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			var iterm bytes.Buffer
-			if err := encoders[ITerm].Encode(&iterm, j); err != nil {
+			if err := testEncoder(ITerm).Encode(&iterm, j); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if want := oscStart + base64.StdEncoding.EncodeToString(f.buf) + "\a\n"; iterm.String() != want {
@@ -28,7 +28,7 @@ func TestJPEGIsSentAsIs(t *testing.T) {
 			}
 			// the other encoders cannot send a jpeg, and must see the image
 			// that j wraps
-			for _, typ := range []TermType{Kitty, Sixel, Halfblock} {
+			for _, typ := range []Protocol{Kitty, Sixel, Halfblock} {
 				if !sameOutput(t, typ, j, j.Image) {
 					t.Errorf("expected %s to encode the image that the JPEG wraps", typ)
 				}
@@ -97,17 +97,17 @@ func TestRawIsSentAsIs(t *testing.T) {
 		img    image.Image
 		format int
 		data   []byte
-		others []TermType
+		others []Protocol
 	}{
-		{"rgb", RGB{Image: img, Data: rgb}, kittyRGB, rgb, []TermType{ITerm, Sixel, Halfblock}},
-		{"rgba", RGBA{Image: img, Data: rgba}, kittyRGBA, rgba, []TermType{ITerm, Sixel, Halfblock}},
+		{"rgb", RGB{Image: img, Data: rgb}, kittyRGB, rgb, []Protocol{ITerm, Sixel, Halfblock}},
+		{"rgba", RGBA{Image: img, Data: rgba}, kittyRGBA, rgba, []Protocol{ITerm, Sixel, Halfblock}},
 		// iterm sends the png, so only sixel and half blocks see the image
-		{"png first", pngAndRGB{RGB{Image: img, Data: rgb}, mustPNG(t, img)}, kittyPNG, mustPNG(t, img), []TermType{Sixel, Halfblock}},
+		{"png first", pngAndRGB{RGB{Image: img, Data: rgb}, mustPNG(t, img)}, kittyPNG, mustPNG(t, img), []Protocol{Sixel, Halfblock}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			if err := encoders[Kitty].Encode(&buf, test.img); err != nil {
+			if err := testEncoder(Kitty).Encode(&buf, test.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			want := string(appendKitty(nil, kittyImage{format: test.format, w: 3, h: 2}, test.data)) + "\n"
@@ -136,7 +136,7 @@ func TestRawThatDoesNotMatchIsEncoded(t *testing.T) {
 		RGBA{Image: img, Data: make([]byte, 4*6+1)},
 	} {
 		var buf bytes.Buffer
-		if err := encoders[Kitty].Encode(&buf, wrapped); err != nil {
+		if err := testEncoder(Kitty).Encode(&buf, wrapped); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
 		if !strings.HasPrefix(buf.String(), "\x1b_Ga=T,f=100,m=1;") {
@@ -159,13 +159,13 @@ func (p pngAndRGB) PNG() []byte {
 
 // sameOutput returns true when the encoder for typ writes the same bytes for a
 // and b.
-func sameOutput(t *testing.T, typ TermType, a, b image.Image) bool {
+func sameOutput(t *testing.T, typ Protocol, a, b image.Image) bool {
 	t.Helper()
 	var x, y bytes.Buffer
-	if err := encoders[typ].Encode(&x, a); err != nil {
+	if err := testEncoder(typ).Encode(&x, a); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if err := encoders[typ].Encode(&y, b); err != nil {
+	if err := testEncoder(typ).Encode(&y, b); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	return bytes.Equal(x.Bytes(), y.Bytes())
@@ -218,7 +218,7 @@ func BenchmarkEncodeJPEG(b *testing.B) {
 			b.Fatalf("expected no error, got: %v", err)
 		}
 		b.Run("iterm/"+f.name, func(b *testing.B) {
-			benchEncode(b, encoders[ITerm], j)
+			benchEncode(b, testEncoder(ITerm), j)
 		})
 	}
 }
@@ -231,10 +231,10 @@ func BenchmarkEncodeRaw(b *testing.B) {
 		rgb := RGB{Image: f.img, Data: packRGB(f.img)}
 		rgba := RGBA{Image: f.img, Data: packRGBA(f.img)}
 		b.Run("kitty/rgb/"+f.name, func(b *testing.B) {
-			benchEncode(b, encoders[Kitty], rgb)
+			benchEncode(b, testEncoder(Kitty), rgb)
 		})
 		b.Run("kitty/rgba/"+f.name, func(b *testing.B) {
-			benchEncode(b, encoders[Kitty], rgba)
+			benchEncode(b, testEncoder(Kitty), rgba)
 		})
 	}
 }

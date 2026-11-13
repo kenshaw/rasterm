@@ -7,7 +7,7 @@ A decision is not a backlog item. It goes in [PLAN.md](PLAN.md). When an
 item here is done, delete it, and record in `PLAN.md` anything that was
 decided on the way (D8).
 
-On 2026-10-15, the code had no `TODO` or `FIXME` comment. The items below
+On 2026-11-14, the code had no `TODO` or `FIXME` comment. The items below
 come from the sources that each one names.
 
 ## Encoders
@@ -29,7 +29,7 @@ Source: found while writing D14, on 2026-10-15.
 An `*image.NRGBA` whose bounds start at the origin holds its pixels in the
 form of `RGBAImage`. Kitty can send its `Pix` with `f=32`, with no wrapper
 and no PNG. That takes less time and sends more bytes (D14), so it changes
-what each caller gets. Ask Ken before the default changes.
+what each caller gets. Ask a maintainer before the default changes.
 
 ### Send a large iTerm image through tmux in parts
 
@@ -59,7 +59,7 @@ In tmux, Ghostty 1.3.1 can close after a clear of the terminal, when Kitty
 images are drawn with placeholder cells. Before it closes, it logs
 `missing image for virtual placement` for each cell and each frame. It is
 related to Ghostty discussion 5453
-(https://github.com/ghostty-org/ghostty/discussions/5453), which Ken
+(https://github.com/ghostty-org/ghostty/discussions/5453), which a maintainer
 reported for images that are drawn at once, and which is fixed. Find the
 smallest steps that make Ghostty close, find out whether eviction or the
 clear removes the images, and then file a report with Ghostty.
@@ -70,9 +70,10 @@ Source: D22, on 2026-10-20.
 
 Each image that Kitty draws with placeholder cells stays in the memory of
 the terminal until the terminal removes it, because nothing deletes it by
-its id. This can be a part of the Ghostty fault above. An animation in `iv` sends one image for each frame. `iv` deletes
-images with `a=d`, which tmux drops, because it is not wrapped. The package
-can give the id of each image, and a function that deletes it.
+its id. This can be a part of the Ghostty fault above. `iv` deletes images
+with `a=d`, which tmux drops, because it is not wrapped. The package can
+give the id of each image, and a function that deletes it, as
+`KittyAnimation.Delete` does for an animation (D25).
 
 ### Find out what Kitty does with an animated PNG
 
@@ -86,17 +87,47 @@ each frame.
 
 Source: `BenchmarkEncode`, on 2026-10-15.
 
-Sixel takes 68 ms for `testdata/jpg1.jpg`, and Kitty takes 26 ms. Most of
-the time is in the median cut quantizer of `go-sixel`. The output is written
-in one call already (D9).
+Sixel takes 64 ms for `testdata/photo.jpg`, and Kitty takes 44 ms, on
+2026-11-14. Most of the time of Sixel is in the median cut quantizer of
+`go-sixel`. The output is written in one call already (D9).
+
+## Detection
+
+### Query the terminal through the passthrough of tmux
+
+Source: D26, on 2026-11-14. Open question 9.
+
+In tmux, `Detect` asks tmux, and finds Kitty by the name of the terminal.
+Find out with a test, on tmux 3.8, whether tmux gives the answers of the
+outer terminal to the pane when the queries go through the passthrough. Test
+it on one host and over SSH, with one client and with two.
+
+### Test Kitty animation in a terminal
+
+Source: D28, on 2026-11-14.
+
+The tests of `KittyAnimation` check the escape sequences, not what a
+terminal shows. Play an animation in kitty and in Ghostty 1.4.0, out of tmux
+and in tmux. Find out whether the root frame flickers before its gap is set,
+as Gemini warned.
 
 ## Users
 
-### Send the PNG of an image in iv
+### Move the users to the API of D26
 
-Source: Ken, on 2026-10-15 (D10).
+Source: D26, on 2026-11-14.
 
-`iv` decodes a PNG file with `image.Decode`, and the bytes of the file are
-lost. To use D10, `iv` must keep the bytes and wrap the image with
-`rasterm.PNG` when it does not scale or change the image. The change is in
-`iv`, not here.
+These programs use the API of v0.1.23, which D26 removed:
+
+- `iv` calls `Kitty.Available`, `ITerm.Available` and `Encode`, and takes a
+  `TermType` in `ivimg.Raw`. It can play an animation with
+  `KittyAnimation` when the protocol is Kitty.
+- `usql` reads `TERM_GRAPHICS` into a `TermType`, and calls `PendingInput`.
+  It must call `Detect` before its line editor starts, and give the keys
+  that `Detect` returns to the line editor.
+- `chartfmt` takes a `TermType`.
+- `chromedp/termcast` uses `NewDefaultEncoder` with encoders that have
+  `NoNewline`.
+- `fv` and the examples of `chromedp` call `Available` and `Encode`.
+
+The changes are in those repositories, not here.

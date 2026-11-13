@@ -18,23 +18,13 @@ import (
 //
 // The encoder does not scale. Each column of pixels is one column of cells,
 // and each two rows of pixels are one row of cells, so the caller scales the
-// image to the size of the terminal first. The encoder is available only when
-// TERM_GRAPHICS is halfblock. [Default] tries it last, after Kitty, iTerm and
-// Sixel, so it is never a fallback.
-type HalfblockEncoder struct {
-	NoNewline bool
-}
-
-// NewHalfblockEncoder creates a half block terminal graphics encoder.
-func NewHalfblockEncoder() Encoder {
-	return HalfblockEncoder{}
-}
-
-// Available satisfies the [Encoder] interface. It is true only when
+// image to the size of the terminal first. [Detect] selects it only when
 // TERM_GRAPHICS is halfblock, because the encoder needs nothing from the
-// terminal except 24-bit color, which no variable reliably reports.
-func (HalfblockEncoder) Available() bool {
-	return hasTermGraphics("halfblock")
+// terminal except 24-bit color, which no query or variable reliably reports
+// (D12). It satisfies the [Encoder] interface.
+type HalfblockEncoder struct {
+	// NoNewline writes no newline after the image.
+	NoNewline bool
 }
 
 // Encode satisfies the [Encoder] interface.

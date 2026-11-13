@@ -29,7 +29,7 @@ const (
 	ZlibNever
 )
 
-// The limits of [ZlibAuto]. Ken chose them on 2026-10-15, from the
+// The limits of [ZlibAuto]. A maintainer chose them on 2026-10-15, from the
 // measurements in iv (D18).
 const (
 	// zlibMin is the size of raw pixels below which they are not compressed.

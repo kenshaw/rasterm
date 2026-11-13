@@ -48,10 +48,8 @@ func TestKittyPlaceholder(t *testing.T) {
 	}
 	for _, in := range inputs {
 		t.Run(in.name, func(t *testing.T) {
-			withTmux(t, true)
-			withTmuxClient(t, tmuxClient{protocol: "kitty", cellWidth: 10, cellHeight: 20})
 			var buf bytes.Buffer
-			if err := encoders[Kitty].Encode(&buf, in.img); err != nil {
+			if err := tmuxEncoder(Kitty, image.Pt(10, 20)).Encode(&buf, in.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			seqs, rest := unwrapTmux(t, buf.String())
@@ -86,13 +84,11 @@ func TestKittyPlaceholder(t *testing.T) {
 }
 
 func TestKittyPlaceholderIDs(t *testing.T) {
-	withTmux(t, true)
-	withTmuxClient(t, tmuxClient{protocol: "kitty", cellWidth: 10, cellHeight: 20})
 	img := flatImage(40, 40)
 	ids := make(map[string]bool)
 	for range 20 {
 		var buf bytes.Buffer
-		if err := encoders[Kitty].Encode(&buf, img); err != nil {
+		if err := tmuxEncoder(Kitty, image.Pt(10, 20)).Encode(&buf, img); err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
 		seqs, _ := unwrapTmux(t, buf.String())
@@ -109,18 +105,16 @@ func TestKittyPlaceholderIDs(t *testing.T) {
 func TestKittyPlaceholderFallsBack(t *testing.T) {
 	tests := []struct {
 		name string
-		c    tmuxClient
+		cell image.Point
 		img  image.Image
 	}{
-		{"no cell size", tmuxClient{protocol: "kitty"}, flatImage(40, 40)},
-		{"too many rows", tmuxClient{protocol: "kitty", cellWidth: 10, cellHeight: 1}, flatImage(40, 400)},
+		{"no cell size", image.Point{}, flatImage(40, 40)},
+		{"too many rows", image.Pt(10, 1), flatImage(40, 400)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			withTmux(t, true)
-			withTmuxClient(t, test.c)
 			var buf bytes.Buffer
-			if err := encoders[Kitty].Encode(&buf, test.img); err != nil {
+			if err := tmuxEncoder(Kitty, test.cell).Encode(&buf, test.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			seqs, rest := unwrapTmux(t, buf.String())
@@ -133,10 +127,8 @@ func TestKittyPlaceholderFallsBack(t *testing.T) {
 }
 
 func TestKittyPlaceholderWritesOnce(t *testing.T) {
-	withTmux(t, true)
-	withTmuxClient(t, tmuxClient{protocol: "kitty", cellWidth: 10, cellHeight: 20})
 	var w countWriter
-	if err := encoders[Kitty].Encode(&w, flatImage(300, 300)); err != nil {
+	if err := tmuxEncoder(Kitty, image.Pt(10, 20)).Encode(&w, flatImage(300, 300)); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	if w.writes != 1 {

@@ -1,7 +1,7 @@
 # Plan
 
 This document holds the plan for `rasterm`, then each decision that shapes
-it, then the open questions for Ken. `rasterm` is a small library, so its
+it, then the open questions for the maintainers. `rasterm` is a small library, so its
 decisions stay in this document and do not get one file each (dbmeta D111).
 
 ## Purpose
@@ -9,37 +9,46 @@ decisions stay in this document and do not get one file each (dbmeta D111).
 `rasterm` encodes a Go `image.Image` as terminal graphics. A terminal that
 reads the graphics draws the image in its cells. The package writes three
 protocols: Kitty, iTerm and Sixel. It can also draw an image as text, with
-half blocks, when the environment asks for it (D12). It finds from the environment which
-protocol the terminal reads (D3), and its default encoder takes the first
-one that is available (D4).
+half blocks, when `TERM_GRAPHICS` asks for it (D12). `Detect` asks the
+terminal which protocols it supports, and selects one (D26, D27). It can
+also stream the frames of an animation to a Kitty terminal (D25).
 
 The main user is `github.com/kenshaw/iv`, a command-line image viewer. `iv`
-draws each image and each frame of an animation through `rasterm.Encode`.
+draws each image and each frame of an animation with `rasterm`.
 
 ## Current state
 
-The state below is at `eacef4b` (2026-06-23), with the work of 2026-10-15.
+The state below is at 2026-11-14.
 
-- `KittyEncoder`, `ITermEncoder` and `SixelEncoder` each satisfy `Encoder`.
-  `DefaultEncoder` wraps all three. `Kitty`, `ITerm`, `Sixel` and `Default`
-  are `TermType` values that find the encoder for each.
+- `Detect` finds the protocol from `TERM_GRAPHICS`, then from tmux, then
+  from the answers of the terminal to its queries, then from the other
+  variables of the environment (D26, D27, D28). It returns a `Terminal`.
+- `Terminal.Encoder` returns the encoder for the protocol, set up for the
+  terminal. `KittyEncoder`, `ITermEncoder`, `SixelEncoder` and
+  `HalfblockEncoder` each satisfy `Encoder`, and read no package state.
 - Each encoder builds its output in memory and writes it in one call (D9).
 - Kitty and iTerm send the bytes of a `PNGImage` as they are, and do not
   encode the image again (D10).
 - iTerm sends the bytes of a `JPEGImage` as they are, and Kitty sends the
-  pixels of an `RGBImage` or an `RGBAImage` as they are (D13, D14).
-- `HalfblockEncoder` draws an image as text when `TERM_GRAPHICS` is
-  `halfblock` (D12).
+  pixels of an `RGBImage` or an `RGBAImage` as they are (D13, D14). Kitty
+  compresses raw pixels with zlib when they compress well (D18, D19).
+- In tmux, Kitty and iTerm wrap their output in the passthrough of tmux
+  (D20), and Kitty draws with placeholder cells (D22).
+- `KittyEncoder.Animate` streams the frames of a finite animation to a Kitty
+  terminal (D25, D28).
 - `go test ./...` writes each image in `testdata/` to the terminal that runs
-  it, through the default encoder. CI sets `TERM_GRAPHICS=sixel`, and runs
-  on Linux, macOS and Windows (D16).
+  it. CI sets `TERM_GRAPHICS=sixel`, and runs on Linux, macOS and Windows
+  (D16). [testdata/README.md](../testdata/README.md) records the source and the license of
+  each image.
 - The module declares `go 1.26.0` (D15). The code uses the idioms of that
   release, and `go fix -diff ./...` reports no change.
+- The programs that use `rasterm`, such as `iv` and `usql`, still use the
+  API of v0.1.23. [BACKLOG.md](BACKLOG.md) lists the change in each one.
 
 ## Direction
 
 No document states a direction beyond the work in
-[BACKLOG.md](BACKLOG.md). Ask Ken before you start a new feature that is not
+[BACKLOG.md](BACKLOG.md). Ask a maintainer before you start a new feature that is not
 in that list.
 
 ## Decisions
@@ -50,8 +59,8 @@ conclusion. When a later decision changes one, the older entry keeps its
 text, and its heading names the decision that changed it.
 
 Each heading carries a status after the title. `Decided` means that the
-history shows that Ken chose it. `Proposed` means that the code follows it
-and nothing shows that Ken chose it, so ask him. After the status,
+history shows that a maintainer chose it. `Proposed` means that the code follows it
+and nothing shows that a maintainer chose it, so ask one. After the status,
 `Amends Dn` or `Amended by Dn` names a decision that this one changes or
 that changes it.
 
@@ -67,15 +76,15 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | --- | --- | --- |
 | [D1](#d1-rasterm-is-a-rewrite-of-bourgeoisbearrasterm-decided) | rasterm is a rewrite of BourgeoisBear/rasterm | Decided |
 | [D2](#d2-rasterm-writes-kitty-iterm-and-sixel-and-go-sixel-writes-the-sixel-decided) | rasterm writes Kitty, iTerm and Sixel, and go-sixel writes the Sixel | Decided |
-| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17-amended-by-d21-amended-by-d23) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17. Amended by D21. Amended by D23 |
-| [D4](#d4-the-default-encoder-takes-the-first-available-of-kitty-iterm-and-sixel-decided-amended-by-d12) | The default encoder takes the first available of Kitty, iTerm and Sixel | Decided. Amended by D12 |
+| [D3](#d3-the-environment-selects-the-protocol-and-term_graphics-overrides-it-decided-amended-by-d17-amended-by-d21-amended-by-d23-amended-by-d26) | The environment selects the protocol, and TERM_GRAPHICS overrides it | Decided. Amended by D17. Amended by D21. Amended by D23. Amended by D26 |
+| [D4](#d4-the-default-encoder-takes-the-first-available-of-kitty-iterm-and-sixel-decided-amended-by-d12-amended-by-d26) | The default encoder takes the first available of Kitty, iTerm and Sixel | Decided. Amended by D12. Amended by D26 |
 | [D5](#d5-iterm-gets-a-png-for-a-paletted-image-and-a-jpeg-for-any-other-decided) | iTerm gets a PNG for a paletted image, and a JPEG for any other | Decided |
 | [D6](#d6-a-sentinel-error-is-a-constant-of-type-error-decided) | A sentinel error is a constant of type Error | Decided |
-| [D7](#d7-rasterm-makes-no-promise-of-backward-compatibility-proposed) | rasterm makes no promise of backward compatibility | Proposed |
+| [D7](#d7-rasterm-makes-no-promise-of-backward-compatibility-decided) | rasterm makes no promise of backward compatibility | Decided |
 | [D8](#d8-rasterm-is-set-up-for-coding-agents-as-every-xo-repository-is-decided) | rasterm is set up for coding agents as every xo repository is | Decided |
 | [D9](#d9-each-encoder-writes-an-image-in-one-call-to-write-decided) | Each encoder writes an image in one call to Write | Decided |
 | [D10](#d10-kitty-and-iterm-send-the-bytes-of-a-pngimage-as-they-are-decided) | Kitty and iTerm send the bytes of a PNGImage as they are | Decided |
-| [D11](#d11-png-encoding-uses-the-fastest-compression-level-proposed) | PNG encoding uses the fastest compression level | Proposed |
+| [D11](#d11-png-encoding-uses-the-fastest-compression-level-decided) | PNG encoding uses the fastest compression level | Decided |
 | [D12](#d12-a-half-block-encoder-draws-the-image-as-text-only-when-term_graphics-asks-for-it-decided-amends-d4-amended-by-d17) | A half-block encoder draws the image as text, only when TERM_GRAPHICS asks for it | Decided. Amends D4. Amended by D17 |
 | [D13](#d13-each-format-that-an-encoder-can-send-as-is-has-its-own-interface-decided) | Each format that an encoder can send as is has its own interface | Decided |
 | [D14](#d14-kitty-sends-the-pixels-of-an-rgbimage-or-an-rgbaimage-as-they-are-decided-amended-by-d18) | Kitty sends the pixels of an RGBImage or an RGBAImage as they are | Decided. Amended by D18 |
@@ -85,16 +94,20 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14-amended-by-d19) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14. Amended by D19 |
 | [D19](#d19-the-zlib-stream-is-never-flushed-decided-amends-d18) | The zlib stream is never flushed | Decided. Amends D18 |
 | [D20](#d20-in-tmux-kitty-and-iterm-wrap-each-escape-sequence-in-the-dcs-passthrough-decided-amended-by-d21-amended-by-d22) | In tmux, Kitty and iTerm wrap each escape sequence in the DCS passthrough | Decided. Amended by D21. Amended by D22 |
-| [D21](#d21-in-tmux-kitty-and-iterm-ask-tmux-for-the-terminal-and-for-allow-passthrough-proposed-amends-d3-amends-d20-amended-by-d22) | In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough | Proposed. Amends D3. Amends D20. Amended by D22 |
+| [D21](#d21-in-tmux-kitty-and-iterm-ask-tmux-for-the-terminal-and-for-allow-passthrough-decided-amends-d3-amends-d20-amended-by-d22) | In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough | Decided. Amends D3. Amends D20. Amended by D22 |
 | [D22](#d22-in-tmux-kitty-draws-an-image-with-unicode-placeholder-cells-decided-amends-d20-amends-d21) | In tmux, Kitty draws an image with Unicode placeholder cells | Decided. Amends D20. Amends D21 |
-| [D23](#d23-the-query-for-sixel-waits-250-ms-and-reads-only-the-reply-decided-amends-d3-amended-by-d24) | The query for Sixel waits 250 ms, and reads only the reply | Decided. Amends D3. Amended by D24 |
-| [D24](#d24-the-keys-that-the-query-for-sixel-reads-go-back-to-the-program-through-pendinginput-proposed-amends-d23) | The keys that the query for Sixel reads go back to the program through PendingInput | Proposed. Amends D23 |
+| [D23](#d23-the-query-for-sixel-waits-250-ms-and-reads-only-the-reply-decided-amends-d3-amended-by-d24-amended-by-d26) | The query for Sixel waits 250 ms, and reads only the reply | Decided. Amends D3. Amended by D24. Amended by D26 |
+| [D24](#d24-the-keys-that-the-query-for-sixel-reads-go-back-to-the-program-through-pendinginput-decided-amends-d23-amended-by-d26) | The keys that the query for Sixel reads go back to the program through PendingInput | Decided. Amends D23. Amended by D26 |
+| [D25](#d25-kitty-streams-a-finite-animation-as-the-frames-of-one-image-decided-amended-by-d28) | Kitty streams a finite animation as the frames of one image | Decided. Amended by D28 |
+| [D26](#d26-detect-asks-the-terminal-for-each-protocol-and-replaces-available-decided-amends-d3-amends-d4-amends-d23-amends-d24-amended-by-d27-amended-by-d28) | Detect asks the terminal for each protocol, and replaces Available | Decided. Amends D3. Amends D4. Amends D23. Amends D24. Amended by D27. Amended by D28 |
+| [D27](#d27-detect-takes-a-context-and-the-options-are-functional-decided-amends-d26) | Detect takes a context, and the options are functional | Decided. Amends D26 |
+| [D28](#d28-the-code-of-d25-and-d26-makes-these-choices-proposed-amends-d25-amends-d26) | The code of D25 and D26 makes these choices | Proposed. Amends D25. Amends D26 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
 Date: 2023-11-19. Commit: `49c2256`.
 
-Jason Stewart wrote `github.com/BourgeoisBear/rasterm` in 2021. Ken forked
+Jason Stewart wrote `github.com/BourgeoisBear/rasterm` in 2021. A maintainer forked
 it and rewrote it in one commit, "Rewrite". The rewrite put the three
 encoders behind one `Encoder` interface, added `TermType`, and moved the test
 images to `testdata/`. The README says "Fork/rewrite of `rasterm`" and links
@@ -108,7 +121,7 @@ The original package had its own Sixel encoder in `sixel.go`. The rewrite
 deleted it and calls `github.com/mattn/go-sixel` instead. Reason not
 recorded. The Kitty and iTerm encoders stay in this package.
 
-### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17. Amended by D21. Amended by D23.
+### D3. The environment selects the protocol, and TERM_GRAPHICS overrides it. Decided. Amended by D17. Amended by D21. Amended by D23. Amended by D26.
 
 Date: 2024-01-11. Commits: `8fbd4fc`, `640e270`, `5466e05`, `dc6c752`,
 `6c01d0a`.
@@ -126,7 +139,7 @@ unavailable. Without it, each encoder reads other variables:
   attribute 4. This needs a terminal on standard input and output, and it
   works on Unix only.
 
-### D4. The default encoder takes the first available of Kitty, iTerm and Sixel. Decided. Amended by D12.
+### D4. The default encoder takes the first available of Kitty, iTerm and Sixel. Decided. Amended by D12. Amended by D26.
 
 Date: 2023-11-19. Commits: `49c2256`, `48a9f45`.
 
@@ -143,7 +156,7 @@ Date: 2021-03-16. Commit: `707d360`. Kept in `49c2256`.
 
 Jason Stewart made the iTerm encoder send a PNG only for an
 `*image.Paletted`, and a JPEG for every other image. The commit message
-names "wez perf issue", which is a performance problem in WezTerm. Ken kept
+names "wez perf issue", which is a performance problem in WezTerm. A maintainer kept
 the rule in the rewrite. `DefaultJPEGQuality` sets the quality, and is 93.
 D10 adds an exception: a `PNGImage` is sent as its PNG.
 
@@ -157,9 +170,12 @@ Date: 2023-11-19. Commit: `49c2256`.
 it compares with `==` and `errors.Is`. The `xo` repositories use the same
 form, as in terminfo D11 and dbmeta D32.
 
-### D7. rasterm makes no promise of backward compatibility. Proposed.
+### D7. rasterm makes no promise of backward compatibility. Decided.
 
 Date: 2026-10-15. Source: tblfmt D37.
+
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
 
 tblfmt D37 records that no `xo` project makes a promise about its API. A
 change can rename or remove an exported identifier when that makes the code
@@ -171,7 +187,7 @@ the rules of Go modules.
 
 Date: 2026-10-15. Source: dbmeta D110, dbmeta D111 and iv D21.
 
-Ken asked on 2026-10-15 for the agent setup of the `xo` projects, with
+A maintainer asked on 2026-10-15 for the agent setup of the `xo` projects, with
 `xo/dbmeta` as a template and not as text to copy. `iv` uses the same setup
 (iv D21). The setup is this:
 
@@ -201,7 +217,7 @@ the index above against the headings. `TestAnAmendmentPointsBothWays` and
 
 Date: 2026-10-15.
 
-Ken asked on 2026-10-15 for faster output, by building the output in memory
+A maintainer asked on 2026-10-15 for faster output, by building the output in memory
 before it goes to the terminal. Each encoder now builds the escape sequences
 and the newline in a buffer from a `sync.Pool`, and then calls `Write` once.
 A buffer of more than 64 MiB does not go back to the pool.
@@ -239,7 +255,7 @@ after, both with `go-sixel` v0.0.14, on an AMD Ryzen 9 9950X:
 
 Date: 2026-10-15.
 
-Ken asked on 2026-10-15 that the Kitty encoder send the bytes of a PNG that
+A maintainer asked on 2026-10-15 that the Kitty encoder send the bytes of a PNG that
 it already has, and not decode and encode the image again. The use is `iv`,
 which reads a PNG file and often draws it without a change.
 
@@ -261,17 +277,20 @@ encoded the image again. For `testdata/png1.png`, the times were 4.8 µs and
 996 µs.
 
 Gemini 3.1 Pro reviewed the design on 2026-10-15. It proposed the `Unwrap`
-method and the signature check, and both are in. Open question 4 holds the
+method and the signature check, and both are in. Open question 3 holds the
 choices that it questioned.
 
-### D11. PNG encoding uses the fastest compression level. Proposed.
+### D11. PNG encoding uses the fastest compression level. Decided.
 
 Date: 2026-10-15.
+
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
 
 `DefaultPNGCompression` is `png.BestSpeed`. `image/png` used
 `png.DefaultCompression` before. The Kitty encoder and the iTerm encoder of a
 paletted image use it. The variable has the form of `DefaultJPEGQuality`.
-Ken did not choose the level.
+No maintainer chose the level.
 
 `BenchmarkPNGCompression` measures the Kitty encoder at three levels. On
 2026-10-15 it gave these times and sizes:
@@ -292,7 +311,7 @@ on the connection to it.
 
 Date: 2026-10-15.
 
-Ken asked on 2026-10-15 for a half-block encoder, with the features of the
+A maintainer asked on 2026-10-15 for a half-block encoder, with the features of the
 half-block renderer of `github.com/blacktop/go-termimg` v0.1.26, and only if
 it needs few new dependencies. That renderer calls
 `github.com/charmbracelet/x/mosaic`. It scales the image to a size in cells,
@@ -301,7 +320,7 @@ or to the size of the terminal, with four scale modes, and it can dither.
 `github.com/kenshaw/blocked` cannot draw the colors, because its `Bitmap`
 holds one bit for each pixel.
 
-Ken chose these rules on 2026-10-15:
+A maintainer chose these rules on 2026-10-15:
 
 - The encoder does not scale. The caller, such as `iv`, scales the image
   first. Each cell is the `▀` character, and shows the upper pixel in the
@@ -331,8 +350,8 @@ encoder does not do. The comparison ran in a separate module, so that
 
 Date: 2026-10-15.
 
-Ken chose on 2026-10-15 to add `JPEGImage`, with the method `JPEG() []byte`,
-in the form of `PNGImage` (D10), and then `RGBImage` and `RGBAImage`. He gave
+A maintainer chose on 2026-10-15 to add `JPEGImage`, with the method `JPEG() []byte`,
+in the form of `PNGImage` (D10), and then `RGBImage` and `RGBAImage`. The maintainer gave
 the reason: a type switch is much faster in any calling package. So the
 package has one small interface for each format, and not one general method
 such as `Encoded() (mime string, data []byte)`, which a caller must call and
@@ -364,7 +383,7 @@ when it is sent as is than when it is encoded again.
 
 Date: 2026-10-15.
 
-Ken asked on 2026-10-15 for `RGB` and `RGBA` forms of D13, for the encoders
+A maintainer asked on 2026-10-15 for `RGB` and `RGBA` forms of D13, for the encoders
 that take raw pixels. Only Kitty does. It sends 24-bit pixels with `f=24` and
 32-bit pixels with `f=32`, and gives the width and the height with `s` and
 `v`. The bytes are packed with no padding at the end of a row, and the alpha
@@ -385,11 +404,11 @@ chooses which to send.
 
 Date: 2026-10-15.
 
-Ken first asked on 2026-10-15 that the module build with Go 1.25, with the
+A maintainer first asked on 2026-10-15 that the module build with Go 1.25, with the
 code in the style of Go 1.27. `golang.org/x/term` v0.46.0 and later, and
 `golang.org/x/sys` v0.48.0 and later, declare `go 1.26.0`. The newest
 releases that build with Go 1.25 were `x/term` v0.45.0 and `x/sys` v0.47.0.
-Ken then chose the newest `golang.org/x` modules, and said that `go 1.26` is
+The same maintainer then chose the newest `golang.org/x` modules, and said that `go 1.26` is
 fine. So `go.mod` declares `go 1.26.0`, with `x/term` v0.47.0 and `x/sys`
 v0.49.0.
 
@@ -402,7 +421,7 @@ no change. They suggest only what the go directive allows.
 
 Date: 2026-10-15.
 
-Ken asked on 2026-10-15 for CI on `ubuntu-latest`, `macos-latest` and
+A maintainer asked on 2026-10-15 for CI on `ubuntu-latest`, `macos-latest` and
 `windows-latest`, with the latest version of each action. On that date,
 these were `actions/checkout@v7` (v7.0.1) and `actions/setup-go@v7`
 (v7.0.0). Each platform runs on Go 1.26, which `go.mod` declares (D15), and
@@ -416,7 +435,7 @@ each platform builds different code.
 
 Date: 2026-10-15.
 
-On 2026-10-15, Ken set `TERM_GRAPHICS=halfblock` in Ghostty and ran `iv`, and
+On 2026-10-15, a maintainer set `TERM_GRAPHICS=halfblock` in Ghostty and ran `iv`, and
 `iv` drew with Kitty. Each encoder checked only for the value `none`. The
 Kitty encoder found `TERM_PROGRAM=ghostty`, and `Default` takes Kitty first
 (D4). So the variable added a protocol, and did not override the others, as
@@ -430,7 +449,7 @@ for its device attributes. A value that names no protocol, such as the
 empty string, leaves each encoder to detect its protocol from the
 environment, as before. `TestOtherProtocol` checks each value.
 
-Ken asked on 2026-10-15 that the value forgive small errors.
+A maintainer asked on 2026-10-15 that the value forgive small errors.
 `normalize` reads it in lower case, removes each character that is not a
 letter, and removes a final `s`. So `half-block`, `half-blocks`,
 `halfblocks` and `HalfBlock` each select half blocks, `sixels` selects Sixel
@@ -447,8 +466,8 @@ protocol is selected.
 
 Date: 2026-10-15.
 
-Ken asked through the `iv` session on 2026-10-15 for zlib compression (`o=z`)
-of raw pixels, and he chose the threshold. `iv` now sends raw RGB and RGBA
+A maintainer asked through the `iv` session on 2026-10-15 for zlib compression (`o=z`)
+of raw pixels, and the maintainer chose the threshold. `iv` now sends raw RGB and RGBA
 through `RGBImage` and `RGBAImage`. D14 sent them uncompressed.
 
 `KittyEncoder.Zlib` sets the mode. `ZlibAuto` is the zero value and the
@@ -480,7 +499,7 @@ stale values.
 The first design checked once, after the first 64 KiB. That reads only the
 top of the image. For `testdata/jpg1.jpg`, a photo, the top compressed to
 less than 0.25, so `ZlibAuto` compressed the whole photo, in 11 ms in place
-of 1.35 ms. Ken chose on 2026-10-15 to check after each 64 KiB. The ratio is
+of 1.35 ms. A maintainer chose on 2026-10-15 to check after each 64 KiB. The ratio is
 of all the output to all the input, so that a flat page with a photo in it
 still compresses. `TestKittyZlib` has a flat top over noise, which the first
 design compressed and this one sends raw.
@@ -504,7 +523,7 @@ is 2.3 ms for `jpg1.jpg`.
 Date: 2026-10-15.
 
 On 2026-10-15, the output of `ZlibAuto` in v0.1.19 closed Ghostty 1.3.1 for
-Ken. The image was `testdata/gxps/example.xps` from `iv`, at 1390 x 1966
+a maintainer. The image was `testdata/gxps/example.xps` from `iv`, at 1390 x 1966
 RGBA. The same pixels in one zlib stream with no flush worked, and so did
 raw pixels and a PNG. Python and Zig 0.16 inflated every stream to the
 right size, so the fault is in the inflater of Ghostty. The `iv` session
@@ -550,7 +569,7 @@ in Ghostty and iTerm2, and show nothing in tmux 3.8 with
 `set -g allow-passthrough on`. tmux does not send the Kitty (APC) or the
 iTerm (OSC 1337) sequences to the outer terminal. It sends a sequence only
 in its DCS passthrough: `ESC P tmux;`, then the sequence with each ESC
-doubled, then `ESC \`. Ken asked on 2026-10-20 for a clean implementation
+doubled, then `ESC \`. A maintainer asked on 2026-10-20 for a clean implementation
 in this package.
 
 The source of tmux 3.8 (`input.c`) gives these rules:
@@ -593,21 +612,24 @@ This does not find the outer terminal from tmux. In tmux, `TERM_PROGRAM` is
 protocol. Nested tmux needs an envelope for each level, and this writes one.
 [BACKLOG.md](BACKLOG.md) holds the work that is left.
 
-### D21. In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough. Proposed. Amends D3. Amends D20. Amended by D22.
+### D21. In tmux, Kitty and iTerm ask tmux for the terminal and for allow-passthrough. Decided. Amends D3. Amends D20. Amended by D22.
 
 Date: 2026-10-20.
 
-On 2026-10-20, Ken ran `iv` with D20 in tmux, in Ghostty and in Kitty. It
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
+
+On 2026-10-20, a maintainer ran `iv` with D20 in tmux, in Ghostty and in Kitty. It
 printed "term graphics not available". In a tmux pane, `TERM_PROGRAM` is
 `tmux` and `TERM` is `screen-256color` or `tmux-256color`, so no encoder
 found its terminal (D3). With `TERM_GRAPHICS=kitty`, `iv` printed only the
 file names, because `allow-passthrough` was off, and tmux dropped each
-sequence. The variables of the environment do not help. Ken's tmux server
+sequence. The variables of the environment do not help. The tmux server of a maintainer
 started in Ghostty, so each pane had the `GHOSTTY_` variables, also the
-panes of the client in Kitty. A pane that Ken pasted also had `TMUX_PANE`
+panes of the client in Kitty. A pane that a maintainer pasted also had `TMUX_PANE`
 and no `TMUX`.
 
-Ken did not choose an answer, so this decision is Proposed:
+No maintainer chose an answer, so this decision is Proposed:
 
 - The package is in tmux when `$TMUX` or `$TMUX_PANE` is set. D20 read
   `$TMUX` only.
@@ -627,7 +649,7 @@ This is the one place where the package starts a process. Outside tmux it
 starts none.
 
 `TestTmuxProtocol` and `TestTmuxDetection` check the rules. On 2026-10-20,
-the query on Ken's tmux server returned `ghostty 1.3.1-arch2|off`. A program
+the query on the tmux server of a maintainer returned `ghostty 1.3.1-arch2|off`. A program
 in a tmux 3.8 pane, with an outer terminal that gave tmux the name
 `kitty(0.49.2)`, found Kitty with `allow-passthrough on` and no protocol with
 it off, with no `TERM_GRAPHICS`. `iv`, built with this package through a
@@ -646,7 +668,7 @@ stays on the line after the name, and it moves the cursor of the terminal
 back before it writes the next name. tmux can also draw text over an image
 when it draws the pane again.
 
-Ken chose on 2026-10-20 to keep the rows of each image, with the Unicode
+A maintainer chose on 2026-10-20 to keep the rows of each image, with the Unicode
 placeholders of the Kitty protocol, which kitty 0.28 and later and Ghostty
 read. `kitten icat` and yazi draw images in tmux the same way. In tmux,
 when tmux reports the cell size of its client:
@@ -682,29 +704,29 @@ id and `c=10,r=5` and `c=10,r=4`, and tmux drew the placeholder cells.
 `BenchmarkTmux` measures the cost. The time was the same within 5%, and the
 placeholder cells added 2% to 13% to the bytes.
 
-Ken drew each case of placeholder cells in Ghostty 1.3.1 in tmux on
+A maintainer drew each case of placeholder cells in Ghostty 1.3.1 in tmux on
 2026-10-20: a small id, a 32-bit id, and zlib RGBA. Each was correct.
 
 Ghostty 1.3.1 has a known fault with them. In tmux, after a clear of the
-terminal, Ghostty can close. Ken found it with these steps in one Ghostty
+terminal, Ghostty can close. A maintainer found it with these steps in one Ghostty
 window: `iv ./testdata/vips`, then `clear`, then `iv ./testdata/vips` again.
 Just before Ghostty closed, it logged `missing image for virtual placement`
 for two image ids of the package, once for each placeholder cell and each
 frame, and it then stopped answering the Wayland compositor. Outside tmux,
 `iv` does not make Ghostty close.
 
-The fault is related to Ghostty discussion 5453, which Ken reported on
+The fault is related to Ghostty discussion 5453, which a maintainer reported on
 2025-01-31. In that report, Ghostty 1.1.0 closed on a clear or a
 `tput reset` after it evicted Kitty images to make space. That fault is
 fixed for images that are drawn at once. Placeholder cells use virtual
 placements, which take a different path. The cause is not known yet, and no
 report is filed. [BACKLOG.md](BACKLOG.md) holds the work.
 
-### D23. The query for Sixel waits 250 ms, and reads only the reply. Decided. Amends D3. Amended by D24.
+### D23. The query for Sixel waits 250 ms, and reads only the reply. Decided. Amends D3. Amended by D24. Amended by D26.
 
-Date: 2026-11-04. Source: the usql session, for Ken.
+Date: 2026-11-04. Source: the usql session, for a maintainer.
 
-On 2026-11-04, Ken reported through the `usql` session that the query for
+On 2026-11-04, a maintainer reported through the `usql` session that the query for
 Sixel (D3) loses the first keys of the user. In an interactive session,
 `usql` calls `TermType.Available` for its logo, and the package asks the
 terminal for its device attributes. It put standard input in raw mode,
@@ -739,9 +761,12 @@ no reply, and a byte that is not a reply. With no reply, the package waits
 100 ms in the test, and a line that the user types after it reaches the
 program whole.
 
-### D24. The keys that the query for Sixel reads go back to the program through PendingInput. Proposed. Amends D23.
+### D24. The keys that the query for Sixel reads go back to the program through PendingInput. Decided. Amends D23. Amended by D26.
 
-Date: 2026-11-05. Source: the usql session, for Ken.
+Date: 2026-11-05. Source: the usql session, for a maintainer.
+
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
 
 D23 left one case: a key that the user typed before the reply came was read
 and lost. `usql` asks for Sixel before its line editor starts, so the first
@@ -767,33 +792,232 @@ because it is exported.
 
 A function was chosen over a field of `TermType`, because the query runs
 once in each process, in `hasSixelSupport`, and its keys belong to the
-process, not to a value. Ken did not choose the API, so this is Proposed.
+process, not to a value. No maintainer chose the API, so this is Proposed.
 
 Two cases are still possible. A key `c` in the middle of a reply ends the
 reply early. A reply that comes after 250 ms reaches the program as input.
 `term_linux_test.go` checks keys before, around and in place of a reply,
 Escape and an arrow key before a reply, and keys with no reply.
 
-## Open questions for Ken
+### D25. Kitty streams a finite animation as the frames of one image. Decided. Amended by D28.
 
-An open question is not a decision. When Ken answers one, it becomes a
+Date: 2026-11-14. Source: a maintainer asked for a Go API that streams images with
+the animation of the Kitty protocol, and for critiques of it by Gemini,
+OpenAI Pro and DeepSeek. The draft, the summary of the protocol, the
+critiques and the checks against the spec are in
+[KITTY_ANIMATION.md](KITTY_ANIMATION.md). No code follows this decision yet.
+
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
+
+Today `iv` draws each frame of an animation as a new image. It deletes all
+images, encodes the frame, sleeps for the delay, and does the same again for
+each loop. The Kitty protocol can store the frames of an animation under one
+image id, and play them with the delay of each frame. kitty has this since
+0.20.0, and Ghostty since 1.4.0.
+
+The proposed API:
+
+```go
+type KittyAnimation struct{ /* unexported */ }
+
+type KittyFrame struct {
+	Delay      time.Duration // under 0: a base frame that is not shown
+	At         image.Point   // relative to the top left of the root frame
+	Base       int           // from 1. 0 is the frame before. -1 is Background
+	Background color.Color
+	Replace    bool // X=1. By default, the image is blended
+}
+
+func (r KittyEncoder) Animate(w io.Writer, first image.Image, delay time.Duration) (*KittyAnimation, error)
+func (a *KittyAnimation) Frame(img image.Image, f KittyFrame) (int, error)
+func (a *KittyAnimation) End(loops int) error // 0 plays forever
+func (a *KittyAnimation) Stop() error
+func (a *KittyAnimation) Delete() error
+func (a *KittyAnimation) ID() uint32
+```
+
+`Animate` sends the root frame, places it, and starts the animation in
+loading mode (`a=a,s=2`). In loading mode, the terminal waits at the last
+frame for the next one. `Frame` adds a frame with `a=f`. `End` sets the loops
+and plays the frames (`s=3`). `Stop` holds the frame that shows (`s=1`).
+`Delete` deletes the image and its frames (`a=d,d=I`).
+
+The rules of the draft:
+
+- It is for a finite animation, such as a GIF. The terminal keeps every
+  frame, and nothing tells the program which frame shows. A stream with no
+  end, such as video, stays one image for each frame, as in `iv` now.
+- A partial frame is explicit. `KittyFrame` gives the place, the base frame,
+  the background and the blend. The bounds of the image alone cannot say the
+  GIF disposal "restore to previous".
+- A negative delay makes a base frame (`z` under 0). A delay from 0 to 1 ms
+  is 1 ms, because `z=0` is ignored. The negative test comes first.
+- `At` is relative to the bounds of the root frame, so that an image from
+  `SubImage` goes to the correct place.
+- `End` returns an error for a negative count of loops, and for a count that
+  overflows `v=loops+1`.
+
+No maintainer chose the API, so this is Proposed. Open questions 6, 7 and 8
+ask about the writes, the detection and the other encoders.
+
+### D26. Detect asks the terminal for each protocol, and replaces Available. Decided. Amends D3. Amends D4. Amends D23. Amends D24. Amended by D27. Amended by D28.
+
+Date: 2026-11-14. Source: a maintainer asked to detect each protocol by a query to
+the terminal, with `TERM_GRAPHICS` first and the other variables of the
+environment last, and to replace `Available` with a more general API.
+Backward compatibility does not matter. The draft, the critiques by Gemini,
+OpenAI Pro and DeepSeek, and the checks of the critiques are in
+[DETECTION.md](DETECTION.md). No code follows this decision yet.
+
+A maintainer accepted this decision on 2026-11-14. It was Proposed
+before. The text below is as it was written.
+
+`Detect` finds the terminal in this order:
+
+1. If `TERM_GRAPHICS` names a protocol, or `none`, use it. Send no query.
+2. If the program runs in tmux, ask tmux, as D21 does.
+3. If standard input and standard output are terminals, and the terminal is
+   not dumb or Emacs, send the queries in one write: the Kitty query `a=q`,
+   the Kitty feature query `e=a`, XTVERSION, the Sixel colors, the cell
+   size, and DA1 last. Read until the DA1 reply, or until the timeout.
+4. If no query was possible, or the terminal did not answer, read the other
+   variables of the environment, as D3 does now.
+
+The terminal answers each query in order, so the DA1 reply ends the
+replies. The Kitty spec recommends DA1 after the query for this reason. No
+query asks for the inline images of iTerm, so the name from XTVERSION tells
+it: iTerm2 or WezTerm. When the terminal has more than one protocol, the
+order is Kitty, then iTerm, then Sixel.
+
+The API changes as follows:
+
+- `TermType` becomes `Protocol`, without the value `Default`.
+- `Detect(in, out, timeout)` returns a `Terminal` and the keys that it read
+  (D24). `Terminal` holds the protocol to use, its `Source`, the protocols
+  that the terminal reported, the name and the version, the cell size, the
+  Sixel colors, Kitty animation, tmux and passthrough.
+- `Terminal.Encoder(EncoderOptions)` returns the encoder for the protocol,
+  set up for the terminal. The encoders no longer read package state, so a
+  test can give an encoder a terminal.
+- `Available` on each encoder, on `TermType` and in the package goes.
+  `DefaultEncoder`, the package-level `Encode` and `PendingInput` go too.
+  A program calls `Detect` once, before it reads standard input.
+
+The models agreed that a package-level `Encode` must not read standard
+input at a time that the program does not choose. A timeout replaces a
+context, because the query waits with `poll` (D23). Two claims of the
+models were wrong: `client_termtype` is the XTVERSION reply of the outer
+terminal, not its `TERM`, and `e=a` is a query of kitty 0.50.0.
+
+A maintainer asked for the direction, but did not choose the API, so this is
+Proposed. Open question 9 asks about tmux.
+
+### D27. Detect takes a context, and the options are functional. Decided. Amends D26.
+
+Date: 2026-11-14. Source: a maintainer chose it, after this comparison.
+
+D26 gave `Detect` a timeout, not a context, and `Terminal.Encoder` an
+options struct. Gemini argued for the timeout, because it said that a
+context cannot stop a read with `SetReadDeadline`. The query does not use
+`SetReadDeadline`. It waits with `poll` (D23), and `poll` can wait in short
+slices and check the context between them. OpenAI and DeepSeek asked for a
+context. A function that does I/O and can wait takes a context as its first
+argument in Go, and `askTmux` needs one for `exec.CommandContext`.
+
+The API is now:
+
+```go
+func Detect(ctx context.Context, opts ...DetectOption) (Terminal, []byte, error)
+func WithInput(f *os.File) DetectOption       // os.Stdin
+func WithOutput(f *os.File) DetectOption      // os.Stdout
+func WithTimeout(d time.Duration) DetectOption // DefaultDetectTimeout, 250 ms
+func WithGetenv(getenv func(string) string) DetectOption // os.Getenv
+
+func (t Terminal) Encoder(opts ...EncoderOption) Encoder
+func WithNoNewline() EncoderOption
+func WithZlib(mode ZlibMode) EncoderOption
+```
+
+The context stops the wait and the call to tmux. The timeout bounds the wait
+for the answers. `pollIn` waits at most 20 ms at a time, and then checks the
+context. `WithGetenv` lets a test give `Detect` an environment, and lets a
+program such as `usql` give its own `TERM_GRAPHICS`.
+
+### D28. The code of D25 and D26 makes these choices. Proposed. Amends D25. Amends D26.
+
+Date: 2026-11-14. Source: the implementation of D25, D26 and D27.
+
+The implementation made these choices, which no maintainer chose:
+
+- `Detect` reads the other variables of the environment only when it cannot
+  ask the terminal, or when the terminal does not answer DA1 in time. When
+  the terminal answers and reports no graphics, `Detect` selects none, and
+  does not read the variables. A variable can belong to another terminal.
+- In tmux, `Detect` does not read the other variables either, as D21 does.
+  When `TERM_GRAPHICS` forces a protocol in tmux, `Detect` still asks tmux
+  for the cell size, so that Kitty can draw placeholder cells. That reads no
+  input.
+- The names that tell a protocol are kitty and Ghostty for Kitty, in tmux
+  only, and iTerm2, WezTerm and mintty for iTerm. mintty is new: the
+  variable `TERM=mintty` told iTerm before.
+- `Detect` reads the answer to XTSMGRAPHICS only when its status is 0.
+- `KittyAnimation.Frame` writes each frame in one call, as D9 says, until
+  open question 6 is answered.
+- `Detect` sends the feature query for animation and reports the answer in
+  `Terminal.KittyAnimation`. The program decides whether to animate, because
+  kitty before 0.50.0 and Ghostty play animations and do not answer. Open
+  question 7 can still change this.
+- There is no `Animator` interface, until open question 8 is answered.
+- `KittyAnimation` has `Frames`, which returns the number of frames, and
+  errors for a frame out of the root frame, a base frame that does not
+  exist, a bad number of loops, and a frame after `End` or `Delete`.
+  `Stop` does not end the animation, so frames can still be added.
+- The root frame is sent with `a=T`, then `a=a` sets its gap and starts
+  loading mode. Gemini suggested `a=t`, then `a=a`, then `a=p`, against a
+  flicker that was not seen. This was not tested in a terminal.
+- `ErrUnexpectedTermResponse` and `ErrUnknownTermType` are gone.
+  `ErrUnknownProtocol` replaces the second.
+
+The encoders read no package state now. `BenchmarkEncode`,
+`BenchmarkEncodePNG`, `BenchmarkEncodeJPEG`, `BenchmarkEncodeRaw` and
+`BenchmarkKittyZlib` ran before and after the change, 6 times each, with Go
+1.27.4. `benchstat` shows no change: the geometric mean of the time is 2.3%
+less, which is noise, the output has the same bytes, and each image is one
+call to Write.
+
+## Open questions for the maintainers
+
+An open question is not a decision. When a maintainer answers one, it becomes a
 decision above, and the question goes.
 
-1. D7 and D11 are Proposed. Is each one a rule?
-2. dbmeta D110 names the `xo` repositories, and `rasterm` is
+1. dbmeta D110 names the `xo` repositories, and `rasterm` is
    `github.com/kenshaw/rasterm`. D8 records that you asked for the same
    setup here. Is that right?
-3. `.golangci.yml` dates from 2024 and has the form of golangci-lint v1. It
+2. `.golangci.yml` dates from 2024 and has the form of golangci-lint v1. It
    disables linters that v2 removed, such as `execinquery`, `exportloopref`
    and `gomnd`, and CI does not run it. Do you want the v2 configuration that
    the `xo` repositories use, and a lint step in CI?
-4. D13 settles the shape of the interfaces. Must `rasterm` also export the
+3. D13 settles the shape of the interfaces. Must `rasterm` also export the
    wrapper structs `PNG`, `JPEG`, `RGB` and `RGBA`, or only the interfaces
    and `DecodePNG` and `DecodeJPEG`?
-5. `TestEncode` writes each test image to the standard output of the test,
+4. `TestEncode` writes each test image to the standard output of the test,
    which is the terminal that runs it. Do you want to keep that, or write to
    a buffer and keep the visual check behind a flag?
-6. `go-pedantry` and the code disagree in two places. The skill wants a
+5. `go-pedantry` and the code disagree in two places. The skill wants a
    receiver named for its type, and the encoders use `r`. The skill wants
    sentinel errors from `errors.New`, and D6 uses constants. D6 wins for
    the errors. Which wins for the receivers?
+6. D25 and D9 disagree. D9 writes an image in one call to Write. A frame of
+   a 4K animation is about 44 MB after base64, and one call holds all of it
+   in memory, next to the raw pixels. Does `Frame` write once for each frame,
+   or once for each chunk of 4096 bytes?
+7. kitty 0.50.0 and later answer a query for animation (`a=q,e=a`). Older
+   kitty and Ghostty can have animation and not answer. Must rasterm ask the
+   terminal, as it asks for Sixel (D23, D24), or does the program that uses
+   rasterm choose?
+8. Must rasterm have an `Animator` interface that iTerm, Sixel and half
+   blocks satisfy, frame by frame, or does `iv` keep its own loop for them?
+9. In tmux, does rasterm also send the queries through the passthrough?
+   It is not tested whether tmux gives the replies of the outer terminal
+   to the pane. Today rasterm only asks tmux.

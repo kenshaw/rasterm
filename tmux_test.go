@@ -22,7 +22,7 @@ func TestTmuxWrapsEachSequence(t *testing.T) {
 			img  image.Image
 		}{f.name, f.img})
 	}
-	for _, typ := range []TermType{Kitty, ITerm} {
+	for _, typ := range []Protocol{Kitty, ITerm} {
 		for _, in := range inputs {
 			t.Run(typ.String()+"/"+in.name, func(t *testing.T) {
 				want := encodeIn(t, typ, in.img, false)
@@ -71,7 +71,7 @@ func TestTmuxDoesNotWrapTextOrSixel(t *testing.T) {
 	// tmux draws sixel itself when it is built with image support, and half
 	// blocks are text
 	for _, f := range testfiles(t) {
-		for _, typ := range []TermType{Sixel, Halfblock} {
+		for _, typ := range []Protocol{Sixel, Halfblock} {
 			if want, got := encodeIn(t, typ, f.img, false), encodeIn(t, typ, f.img, true); got != want {
 				t.Errorf("%s/%s: expected the same output in tmux", typ, f.name)
 			}
@@ -80,11 +80,10 @@ func TestTmuxDoesNotWrapTextOrSixel(t *testing.T) {
 }
 
 func TestTmuxWritesOnce(t *testing.T) {
-	withTmux(t, true)
 	for _, f := range testfiles(t) {
-		for _, typ := range []TermType{Kitty, ITerm} {
+		for _, typ := range []Protocol{Kitty, ITerm} {
 			var w countWriter
-			if err := encoders[typ].Encode(&w, f.img); err != nil {
+			if err := tmuxEncoder(typ, image.Point{}).Encode(&w, f.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if w.writes != 1 {
@@ -94,32 +93,12 @@ func TestTmuxWritesOnce(t *testing.T) {
 	}
 }
 
-// withTmux makes [inTmux] return v, and [tmuxClientOnce] return a client
-// with no protocol and no cell size, until the test ends, so that no test
-// asks the tmux of the machine.
-func withTmux(t testing.TB, v bool) {
-	t.Helper()
-	withTmuxClient(t, tmuxClient{})
-	prev := inTmux
-	inTmux = func() bool { return v }
-	t.Cleanup(func() { inTmux = prev })
-}
-
-// withTmuxClient makes [tmuxClientOnce] return c until the test ends.
-func withTmuxClient(t testing.TB, c tmuxClient) {
-	t.Helper()
-	prev := tmuxClientOnce
-	tmuxClientOnce = func() tmuxClient { return c }
-	t.Cleanup(func() { tmuxClientOnce = prev })
-}
-
 // encodeIn returns the output of the encoder for typ, in tmux when tmux is
 // true.
-func encodeIn(t *testing.T, typ TermType, img image.Image, tmux bool) string {
+func encodeIn(t *testing.T, typ Protocol, img image.Image, tmux bool) string {
 	t.Helper()
-	withTmux(t, tmux)
 	var buf bytes.Buffer
-	if err := encoders[typ].Encode(&buf, img); err != nil {
+	if err := (Terminal{Protocol: typ, Tmux: tmux}).Encoder().Encode(&buf, img); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	return buf.String()
@@ -170,21 +149,20 @@ func BenchmarkTmux(b *testing.B) {
 	files := testfiles(b)
 	modes := []struct {
 		name string
-		tmux bool
-		c    tmuxClient
+		t    Terminal
 	}{
-		{"plain", false, tmuxClient{}},
-		{"tmux", true, tmuxClient{}},
+		{"plain", Terminal{}},
+		{"tmux", Terminal{Tmux: true}},
 		// with a cell size, kitty draws with placeholder cells (D22)
-		{"placeholder", true, tmuxClient{protocol: "kitty", cellWidth: 10, cellHeight: 20}},
+		{"placeholder", Terminal{Tmux: true, Cell: image.Pt(10, 20)}},
 	}
 	for _, m := range modes {
-		for _, typ := range []TermType{Kitty, ITerm} {
+		for _, typ := range []Protocol{Kitty, ITerm} {
 			for _, f := range files {
 				b.Run(m.name+"/"+typ.String()+"/"+f.name, func(b *testing.B) {
-					withTmux(b, m.tmux)
-					withTmuxClient(b, m.c)
-					benchEncode(b, encoders[typ], f.img)
+					term := m.t
+					term.Protocol = typ
+					benchEncode(b, term.Encoder(), f.img)
 				})
 			}
 		}
@@ -195,57 +173,25 @@ func TestParseTmuxClient(t *testing.T) {
 	tests := []struct {
 		line string
 		exp  tmuxClient
+		ok   bool
 	}{
-		{"ghostty 1.3.1-arch2|on|24|44", tmuxClient{"kitty", 24, 44}},
-		{"kitty(0.49.2)|on|10|20", tmuxClient{"kitty", 10, 20}},
-		{"kitty(0.49.2)|all|10|20", tmuxClient{"kitty", 10, 20}},
-		{"iTerm2 3.5.14|on|9|18", tmuxClient{"iterm", 9, 18}},
-		{"WezTerm 20240203-110809-5046fc22|on|8|16", tmuxClient{"iterm", 8, 16}},
+		{"ghostty 1.3.1-arch2|on|24|44", tmuxClient{"ghostty", "1.3.1-arch2", true, image.Pt(24, 44)}, true},
+		{"kitty(0.49.2)|on|10|20", tmuxClient{"kitty", "0.49.2", true, image.Pt(10, 20)}, true},
+		{"kitty(0.49.2)|all|10|20", tmuxClient{"kitty", "0.49.2", true, image.Pt(10, 20)}, true},
+		{"iTerm2 3.5.14|on|9|18", tmuxClient{"iTerm2", "3.5.14", true, image.Pt(9, 18)}, true},
+		{"WezTerm 20240203-110809-5046fc22|on|8|16", tmuxClient{"WezTerm", "20240203-110809-5046fc22", true, image.Pt(8, 16)}, true},
 		// tmux drops each sequence when passthrough is off
-		{"ghostty 1.3.1-arch2|off|24|44", tmuxClient{"", 24, 44}},
-		// a terminal that is not known, no client, or no cell size
-		{"foot(1.21.0)|on|10|20", tmuxClient{"", 10, 20}},
-		{"|on||", tmuxClient{}},
-		{"kitty(0.49.2)|on", tmuxClient{}},
-		{"", tmuxClient{}},
+		{"ghostty 1.3.1-arch2|off|24|44", tmuxClient{"ghostty", "1.3.1-arch2", false, image.Pt(24, 44)}, true},
+		// no client, or no cell size
+		{"|on||", tmuxClient{passthrough: true}, true},
+		{"kitty(0.49.2)|on", tmuxClient{}, false},
+		{"", tmuxClient{}, false},
 	}
 	for _, test := range tests {
 		t.Run(test.line, func(t *testing.T) {
-			if got := parseTmuxClient(test.line); got != test.exp {
-				t.Errorf("expected %+v, got: %+v", test.exp, got)
-			}
-		})
-	}
-}
-
-func TestTmuxDetection(t *testing.T) {
-	tests := []struct {
-		name     string
-		protocol string
-		tg       string
-		kitty    bool
-		iterm    bool
-	}{
-		{"kitty client", "kitty", "", true, false},
-		{"iterm client", "iterm", "", false, true},
-		// passthrough off, or a client that is not known
-		{"no protocol", "", "", false, false},
-		// TERM_GRAPHICS names a protocol, and tmux is not asked
-		{"forced kitty", "", "kitty", true, false},
-		{"forced iterm", "kitty", "iterm", false, true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			withTmux(t, true)
-			withTmuxClient(t, tmuxClient{protocol: test.protocol})
-			prevTG := termGraphics
-			termGraphics = func() string { return test.tg }
-			t.Cleanup(func() { termGraphics = prevTG })
-			if got := (KittyEncoder{}).Available(); got != test.kitty {
-				t.Errorf("expected kitty available %t, got: %t", test.kitty, got)
-			}
-			if got := (ITermEncoder{}).Available(); got != test.iterm {
-				t.Errorf("expected iterm available %t, got: %t", test.iterm, got)
+			got, ok := parseTmuxClient(test.line)
+			if got != test.exp || ok != test.ok {
+				t.Errorf("expected %+v %t, got: %+v %t", test.exp, test.ok, got, ok)
 			}
 		})
 	}

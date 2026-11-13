@@ -9,12 +9,12 @@ imports it, for Claude Code.
 
 [`docs/PLAN.md`](docs/PLAN.md) holds the plan and each decision that this
 project made. The index at the top lists each decision with its status. The
-open questions for Ken are at the end.
+open questions for the maintainers are at the end.
 
 [`docs/BACKLOG.md`](docs/BACKLOG.md) holds the work that is known and not
 done.
 
-Do not decide an open question on your own. Ask Ken.
+Do not decide an open question on your own. Ask a maintainer.
 
 ## Before you send a change
 
@@ -30,8 +30,9 @@ TERM_GRAPHICS=sixel go test -count=1 ./...
 
 CI runs the tests on Linux, macOS and Windows.
 
-`TERM_GRAPHICS=sixel` makes the Sixel encoder available, as CI does. Without
-a terminal that shows graphics, `TestEncode` fails.
+`TERM_GRAPHICS=sixel` makes `Detect` select Sixel without a query, as CI
+does. Without it, `TestEncode` fails unless the terminal that runs the tests
+shows graphics.
 
 If your change can make an encoder faster or slower, run the benchmarks
 before and after it, and put the `benchstat` output in the pull request. The

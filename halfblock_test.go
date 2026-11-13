@@ -61,7 +61,7 @@ func TestHalfblockEncode(t *testing.T) {
 				img.SetNRGBA(5+i%test.w, 7+i/test.w, c)
 			}
 			var buf bytes.Buffer
-			if err := encoders[Halfblock].Encode(&buf, img); err != nil {
+			if err := testEncoder(Halfblock).Encode(&buf, img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if s := buf.String(); s != test.exp {
@@ -95,10 +95,10 @@ func TestHalfblockMatchesSlowPath(t *testing.T) {
 				}
 			}
 			var a, c bytes.Buffer
-			if err := encoders[Halfblock].Encode(&a, f.img); err != nil {
+			if err := testEncoder(Halfblock).Encode(&a, f.img); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if err := encoders[Halfblock].Encode(&c, slow); err != nil {
+			if err := testEncoder(Halfblock).Encode(&c, slow); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if !bytes.Equal(a.Bytes(), c.Bytes()) {
@@ -108,8 +108,8 @@ func TestHalfblockMatchesSlowPath(t *testing.T) {
 	}
 }
 
-func TestHalfblockTermType(t *testing.T) {
-	var typ TermType
+func TestHalfblockProtocol(t *testing.T) {
+	var typ Protocol
 	if err := typ.UnmarshalText([]byte("halfblock")); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

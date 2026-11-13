@@ -55,11 +55,11 @@ func chunkEncode(w io.Writer, buf []byte) error {
 
 func TestEncodeWritesOnce(t *testing.T) {
 	files := testfiles(t)
-	for _, typ := range []TermType{Kitty, ITerm, Sixel, Halfblock} {
+	for _, typ := range []Protocol{Kitty, ITerm, Sixel, Halfblock} {
 		for _, f := range files {
 			t.Run(typ.String()+"/"+f.name, func(t *testing.T) {
 				var w countWriter
-				if err := encoders[typ].Encode(&w, f.img); err != nil {
+				if err := testEncoder(typ).Encode(&w, f.img); err != nil {
 					t.Fatalf("expected no error, got: %v", err)
 				}
 				if w.writes != 1 {
@@ -82,14 +82,14 @@ func TestPNGIsSentAsIs(t *testing.T) {
 			}
 			b64 := base64.StdEncoding.EncodeToString(f.buf)
 			var kitty bytes.Buffer
-			if err := encoders[Kitty].Encode(&kitty, p); err != nil {
+			if err := testEncoder(Kitty).Encode(&kitty, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if want := string(appendKitty(nil, kittyImage{format: kittyPNG}, f.buf)) + "\n"; kitty.String() != want {
 				t.Errorf("expected kitty to send the PNG as is")
 			}
 			var iterm bytes.Buffer
-			if err := encoders[ITerm].Encode(&iterm, p); err != nil {
+			if err := testEncoder(ITerm).Encode(&iterm, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if want := oscStart + b64 + "\a\n"; iterm.String() != want {
@@ -97,10 +97,10 @@ func TestPNGIsSentAsIs(t *testing.T) {
 			}
 			// sixel cannot send a png, and must see the image that p wraps
 			var a, b bytes.Buffer
-			if err := encoders[Sixel].Encode(&a, p); err != nil {
+			if err := testEncoder(Sixel).Encode(&a, p); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
-			if err := encoders[Sixel].Encode(&b, p.Image); err != nil {
+			if err := testEncoder(Sixel).Encode(&b, p.Image); err != nil {
 				t.Fatalf("expected no error, got: %v", err)
 			}
 			if !bytes.Equal(a.Bytes(), b.Bytes()) {
@@ -169,9 +169,10 @@ func TestPNGFastKeepsPixels(t *testing.T) {
 	}
 }
 
-// countWriter counts the calls to Write and the bytes written, and discards
-// the bytes.
+// countWriter counts the calls to Write and the bytes written. It writes
+// the bytes to w, or discards them when w is nil.
 type countWriter struct {
+	w      io.Writer
 	writes int
 	n      int
 }
@@ -180,15 +181,18 @@ type countWriter struct {
 func (w *countWriter) Write(buf []byte) (int, error) {
 	w.writes++
 	w.n += len(buf)
+	if w.w != nil {
+		return w.w.Write(buf)
+	}
 	return len(buf), nil
 }
 
 func BenchmarkEncode(b *testing.B) {
 	files := testfiles(b)
-	for _, typ := range []TermType{Kitty, ITerm, Sixel, Halfblock} {
+	for _, typ := range []Protocol{Kitty, ITerm, Sixel, Halfblock} {
 		for _, f := range files {
 			b.Run(typ.String()+"/"+f.name, func(b *testing.B) {
-				benchEncode(b, encoders[typ], f.img)
+				benchEncode(b, testEncoder(typ), f.img)
 			})
 		}
 	}
@@ -198,7 +202,7 @@ func BenchmarkEncode(b *testing.B) {
 // Kitty and iTerm send the bytes of the file as they are.
 func BenchmarkEncodePNG(b *testing.B) {
 	files := testfiles(b)
-	for _, typ := range []TermType{Kitty, ITerm} {
+	for _, typ := range []Protocol{Kitty, ITerm} {
 		for _, f := range files {
 			if f.typ != "png" {
 				continue
@@ -208,7 +212,7 @@ func BenchmarkEncodePNG(b *testing.B) {
 				b.Fatalf("expected no error, got: %v", err)
 			}
 			b.Run(typ.String()+"/"+f.name, func(b *testing.B) {
-				benchEncode(b, encoders[typ], p)
+				benchEncode(b, testEncoder(typ), p)
 			})
 		}
 	}
@@ -245,7 +249,7 @@ func BenchmarkPNGCompression(b *testing.B) {
 		for _, f := range files {
 			b.Run(l.name+"/"+f.name, func(b *testing.B) {
 				DefaultPNGCompression = l.level
-				benchEncode(b, encoders[Kitty], f.img)
+				benchEncode(b, testEncoder(Kitty), f.img)
 			})
 		}
 	}
