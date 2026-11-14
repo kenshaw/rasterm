@@ -127,11 +127,12 @@ These are the conventions that the code follows now. Match them.
 - A test is in package `rasterm`, not in a `_test` package, except the
   example. A failure message has the form "expected X, got: Y".
 - The module requires `go-sixel`, `golang.org/x/sys` and `golang.org/x/term`.
-  Ask a maintainer before you add another dependency. Keep the `golang.org/x`
-  modules at their newest release, and the go directive at the release that
-  they need (D15).
+  Ask a maintainer before you add another dependency. The module builds with
+  Go 1.25, so keep `x/sys` at v0.47.0 and `x/term` at v0.45.0, the newest
+  releases that build with it (D30).
 - Use the idioms of the Go release that `go.mod` declares. `go fix -diff
-  ./...` must print nothing.
+  ./...` must print nothing. Run it with Go 1.26 or later, because Go 1.25
+  has no `-diff` flag.
 
 ## Tests, benchmarks and lint
 

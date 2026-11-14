@@ -40,7 +40,7 @@ The state below is at 2026-11-14.
   it. CI sets `TERM_GRAPHICS=sixel`, and runs on Linux, macOS and Windows
   (D16). [testdata/README.md](../testdata/README.md) records the source and the license of
   each image.
-- The module declares `go 1.26.0` (D15). The code uses the idioms of that
+- The module declares `go 1.25.0` (D30). The code uses the idioms of that
   release, and `go fix -diff ./...` reports no change.
 - The programs that use `rasterm`, such as `iv` and `usql`, still use the
   API of v0.1.23. [BACKLOG.md](BACKLOG.md) lists the change in each one.
@@ -88,7 +88,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D12](#d12-a-half-block-encoder-draws-the-image-as-text-only-when-term_graphics-asks-for-it-decided-amends-d4-amended-by-d17) | A half-block encoder draws the image as text, only when TERM_GRAPHICS asks for it | Decided. Amends D4. Amended by D17 |
 | [D13](#d13-each-format-that-an-encoder-can-send-as-is-has-its-own-interface-decided) | Each format that an encoder can send as is has its own interface | Decided |
 | [D14](#d14-kitty-sends-the-pixels-of-an-rgbimage-or-an-rgbaimage-as-they-are-decided-amended-by-d18) | Kitty sends the pixels of an RGBImage or an RGBAImage as they are | Decided. Amended by D18 |
-| [D15](#d15-the-module-requires-the-newest-golangorgx-modules-and-the-go-release-that-they-need-decided) | The module requires the newest golang.org/x modules, and the Go release that they need | Decided |
+| [D15](#d15-the-module-requires-the-newest-golangorgx-modules-and-the-go-release-that-they-need-decided-amended-by-d30) | The module requires the newest golang.org/x modules, and the Go release that they need | Decided. Amended by D30 |
 | [D16](#d16-ci-tests-on-linux-macos-and-windows-on-the-go-release-of-gomod-and-the-latest-decided) | CI tests on Linux, macOS and Windows, on the Go release of go.mod and the latest | Decided |
 | [D17](#d17-a-protocol-that-term_graphics-names-turns-off-each-other-protocol-decided-amends-d3-amends-d12) | A protocol that TERM_GRAPHICS names turns off each other protocol | Decided. Amends D3. Amends D12 |
 | [D18](#d18-kitty-compresses-raw-pixels-with-zlib-when-they-compress-well-decided-amends-d14-amended-by-d19) | Kitty compresses raw pixels with zlib when they compress well | Decided. Amends D14. Amended by D19 |
@@ -103,6 +103,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D27](#d27-detect-takes-a-context-and-the-options-are-functional-decided-amends-d26) | Detect takes a context, and the options are functional | Decided. Amends D26 |
 | [D28](#d28-the-code-of-d25-and-d26-makes-these-choices-proposed-amends-d25-amends-d26) | The code of D25 and D26 makes these choices | Proposed. Amends D25. Amends D26 |
 | [D29](#d29-kittystream-shows-pictures-of-any-number-as-one-kitty-image-with-two-frames-proposed) | KittyStream shows pictures of any number as one Kitty image, with two frames | Proposed |
+| [D30](#d30-the-module-builds-with-go-125-decided-amends-d15) | The module builds with Go 1.25 | Decided. Amends D15 |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -401,7 +402,7 @@ take less time to encode, and the terminal must read 3 to 23 times the bytes.
 A caller that has the pixels, such as a decoder in `iv` that returns them,
 chooses which to send.
 
-### D15. The module requires the newest golang.org/x modules, and the Go release that they need. Decided.
+### D15. The module requires the newest golang.org/x modules, and the Go release that they need. Decided. Amended by D30.
 
 Date: 2026-10-15.
 
@@ -1026,6 +1027,24 @@ is Proposed.
 `BenchmarkStreamDraw` measures one `Draw` for each test image. For
 `photo.jpg`, a draw takes 44 ms and sends 1864 KB in one write, the same as
 `Encode` of the same image.
+
+### D30. The module builds with Go 1.25. Decided. Amends D15.
+
+Date: 2026-11-14.
+
+A maintainer asked on 2026-11-14 that `rasterm` build with Go 1.25, and
+chose this change. `go.mod` declares `go 1.25.0`, with `golang.org/x/sys`
+v0.47.0 and `golang.org/x/term` v0.45.0. These are the newest releases that
+build with Go 1.25. Later releases declare `go 1.26.0`, as D15 records.
+
+The code did not change. Go 1.25 has each idiom that D15 names, and the
+build and the tests pass on Go 1.25.9. The `golang.org/x` modules stay at
+these releases until the module requires Go 1.26 again. Then D15 holds
+again, and they move to their newest release.
+
+CI tests on Go 1.25 and on the latest release (D16). `go fix -diff` exists
+only in Go 1.26 and later, so run it with a later Go. Its modernizers
+suggest only what the go directive allows.
 
 ## Open questions for the maintainers
 
