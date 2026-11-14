@@ -102,6 +102,7 @@ dbmeta D110. A bare number, as in D3, names a decision in this document.
 | [D26](#d26-detect-asks-the-terminal-for-each-protocol-and-replaces-available-decided-amends-d3-amends-d4-amends-d23-amends-d24-amended-by-d27-amended-by-d28) | Detect asks the terminal for each protocol, and replaces Available | Decided. Amends D3. Amends D4. Amends D23. Amends D24. Amended by D27. Amended by D28 |
 | [D27](#d27-detect-takes-a-context-and-the-options-are-functional-decided-amends-d26) | Detect takes a context, and the options are functional | Decided. Amends D26 |
 | [D28](#d28-the-code-of-d25-and-d26-makes-these-choices-proposed-amends-d25-amends-d26) | The code of D25 and D26 makes these choices | Proposed. Amends D25. Amends D26 |
+| [D29](#d29-kittystream-shows-pictures-of-any-number-as-one-kitty-image-with-two-frames-proposed) | KittyStream shows pictures of any number as one Kitty image, with two frames | Proposed |
 
 ### D1. rasterm is a rewrite of BourgeoisBear/rasterm. Decided.
 
@@ -985,6 +986,46 @@ The encoders read no package state now. `BenchmarkEncode`,
 1.27.4. `benchstat` shows no change: the geometric mean of the time is 2.3%
 less, which is noise, the output has the same bytes, and each image is one
 call to Write.
+
+### D29. KittyStream shows pictures of any number as one Kitty image, with two frames. Proposed.
+
+Date: 2026-11-14. Source: the `iv` session, for a maintainer, who wants `iv`
+to play every animation as one Kitty image.
+
+A Kitty animation of D25 stores every frame in the terminal. Ghostty keeps
+at most 320 MB of images for a screen, and kitty 320 MiB. A frame that does
+not fit fails with `ENOSPC`, which `q=2` hides. So `iv` drew a long
+animation, such as video, as one new image for each frame, and that
+flickers in Ghostty. The terminal does not report which frame it shows, so
+playback that the terminal times cannot bound the memory (open questions 1
+and 2 of [KITTY_ANIMATION.md](KITTY_ANIMATION.md)).
+
+`KittyStream` lets the program keep the time, and stores two frames:
+
+```go
+func (r KittyEncoder) Stream(w io.Writer, first image.Image) (*KittyStream, error)
+func (s *KittyStream) Draw(img image.Image) error
+func (s *KittyStream) Delete() error
+func (s *KittyStream) ID() uint32
+```
+
+`Stream` sends the first picture as frame 1 with `a=T`, places it, and
+stops the animation with `a=a,s=1`. The first `Draw` adds frame 2 with
+`a=f,X=1`, and shows it with `a=a,c=2`. Each later `Draw` writes the whole
+picture into the frame that is not shown, with `a=f,r=N,X=1`, and then
+shows it with `a=a,c=N`. Each call writes once (D9). `Draw` returns
+`ErrFrameSize` for a picture of another size.
+
+The `iv` session read Ghostty 1.4.0. A stopped animation changes only on
+`a=a,c=N`, and the edit of a frame that does not show only marks the
+storage as changed, so the picture changes at once. kitty was not read for
+a flicker on the edit, and the stream was not tested in a terminal. The
+`iv` session chose the shape of the API, and no maintainer chose it, so this
+is Proposed.
+
+`BenchmarkStreamDraw` measures one `Draw` for each test image. For
+`photo.jpg`, a draw takes 44 ms and sends 1864 KB in one write, the same as
+`Encode` of the same image.
 
 ## Open questions for the maintainers
 

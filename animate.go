@@ -73,8 +73,8 @@ func (r KittyEncoder) Animate(w io.Writer, first image.Image, delay time.Duratio
 	// the root frame has a gap of 0 until it is set, and loading mode waits
 	// at the last frame for the next one
 	var after []byte
-	after = a.appendControl(after, "r=1,z="+strconv.Itoa(kittyGap(delay)))
-	after = a.appendControl(after, "s=2")
+	after = appendKittyControl(after, r.Tmux, a.id, "r=1,z="+strconv.Itoa(kittyGap(delay)))
+	after = appendKittyControl(after, r.Tmux, a.id, "s=2")
 	k := kittyImage{action: 'T', id: a.id, after: after}
 	if err := r.encode(w, first, k, r.Tmux && r.Cell.X > 0 && r.Cell.Y > 0); err != nil {
 		return nil, err
@@ -132,23 +132,20 @@ func (a *KittyAnimation) End(loops int) error {
 	}
 	a.ended = true
 	// v=1 loops forever, and v=n plays the frames n-1 times
-	return a.write(a.appendControl(nil, "s=3,v="+strconv.Itoa(loops+1)))
+	return a.write(appendKittyControl(nil, a.enc.Tmux, a.id, "s=3,v="+strconv.Itoa(loops+1)))
 }
 
 // Stop stops the animation on the frame that it shows. Frames can still be
 // added, and [KittyAnimation.End] plays the animation again.
 func (a *KittyAnimation) Stop() error {
-	return a.write(a.appendControl(nil, "s=1"))
+	return a.write(appendKittyControl(nil, a.enc.Tmux, a.id, "s=1"))
 }
 
 // Delete deletes the image and all of its frames from the terminal. No frame
 // can be added after it.
 func (a *KittyAnimation) Delete() error {
 	a.ended = true
-	start, end := kittySeq(a.enc.Tmux)
-	buf := append([]byte(start), "a=d,d=I,q=2,i="...)
-	buf = strconv.AppendUint(buf, uint64(a.id), 10)
-	return a.write(append(buf, end...))
+	return a.write(appendKittyDelete(nil, a.enc.Tmux, a.id))
 }
 
 // ID returns the image id of the animation.
@@ -161,14 +158,25 @@ func (a *KittyAnimation) Frames() int {
 	return a.frames
 }
 
-// appendControl appends a control of the animation, a=a with keys, to buf.
-func (a *KittyAnimation) appendControl(buf []byte, keys string) []byte {
-	start, end := kittySeq(a.enc.Tmux)
+// appendKittyControl appends a control of the animation of the image id,
+// a=a with keys, to buf, in the passthrough of tmux when tmux is true.
+func appendKittyControl(buf []byte, tmux bool, id uint32, keys string) []byte {
+	start, end := kittySeq(tmux)
 	buf = append(buf, start...)
 	buf = append(buf, "a=a,q=2,i="...)
-	buf = strconv.AppendUint(buf, uint64(a.id), 10)
+	buf = strconv.AppendUint(buf, uint64(id), 10)
 	buf = append(buf, ',')
 	buf = append(buf, keys...)
+	return append(buf, end...)
+}
+
+// appendKittyDelete appends the deletion of the image id and its frames to
+// buf, in the passthrough of tmux when tmux is true.
+func appendKittyDelete(buf []byte, tmux bool, id uint32) []byte {
+	start, end := kittySeq(tmux)
+	buf = append(buf, start...)
+	buf = append(buf, "a=d,d=I,q=2,i="...)
+	buf = strconv.AppendUint(buf, uint64(id), 10)
 	return append(buf, end...)
 }
 

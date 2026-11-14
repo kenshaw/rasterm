@@ -37,7 +37,7 @@ every other agent read the same rules. Edit this file, not that one.
 | changing what an encoder sends as is | `png.go`, `jpeg.go` and `rgb.go`, then D13 and D14 |
 | changing the half-block encoder | `halfblock.go`, then D12. It does not scale and does not add a dependency |
 | changing how the output goes through tmux | `tmux.go`, then D20 and D21 |
-| changing the animation of Kitty | `animate.go`, then D25 and D28, and open questions 6 to 8 |
+| changing the animation of Kitty | `animate.go` and `stream.go`, then D25, D28 and D29, and open questions 6 to 8 |
 | changing how Kitty draws an image in tmux | `placeholder.go`, then D22. Never edit `placeholder_table.go` by hand |
 | adding or changing a test image | [testdata/README.md](testdata/README.md). Record its source, license and SHA-256, and what path of the code it reaches |
 | asking why detection or animation has its design | [docs/DETECTION.md](docs/DETECTION.md) and [docs/KITTY_ANIMATION.md](docs/KITTY_ANIMATION.md), the design records of D26 and D25 |
@@ -68,7 +68,9 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
   encoders. An encoder reads no package state: `Terminal.Encoder` sets its
   fields. Each encoder writes each image in one call (D9).
 - `animate.go` holds `KittyAnimation`, which streams the frames of an
-  animation to a Kitty terminal (D25, D28).
+  animation to a Kitty terminal that plays them (D25, D28). `stream.go`
+  holds `KittyStream`, which shows pictures as one Kitty image with two
+  frames, at the times that the program chooses (D29).
 - `halfblock.go` holds `HalfblockEncoder`, which draws an image as text
   (D12).
 - `jpeg.go` holds `JPEGImage` and `JPEG`, and the scan of the JPEG markers
@@ -97,8 +99,8 @@ dbmeta D110. A bare number, as in D3, names a decision of this repository, in
   D21, `placeholder_test.go` holds those of D22, and `halfblock_test.go`
   holds those of D12. `detect_test.go` holds the tests of `Detect` that need
   no terminal, `term_linux_test.go` holds those that need one, in a
-  pseudo-terminal (D23, D24, D26, D27), and `animate_test.go` holds those of
-  D25. `docs_test.go` holds the checks of D8, and of `testdata/README.md`.
+  pseudo-terminal (D23, D24, D26, D27), `animate_test.go` holds those of
+  D25, and `stream_test.go` holds those of D29. `docs_test.go` holds the checks of D8, and of `testdata/README.md`.
 
 ## Go conventions
 

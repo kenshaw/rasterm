@@ -202,7 +202,7 @@ func kittyData(buf *bytes.Buffer, img image.Image) (int, []byte, error) {
 
 // kittyStartMax is the length of the longest start of a Kitty image or
 // frame, with each number at its longest, in tmux.
-const kittyStartMax = len(apcTmuxStart+"a=T,f=100,s=,v=,o=z,U=1,q=2,i=,c=,r=,x=,y=,X=1,Y=,z=,m=1;"+apcTmuxEnd) + 11*10
+const kittyStartMax = len(apcTmuxStart+"a=T,f=100,s=,v=,o=z,U=1,q=2,i=,c=,r=,x=,y=,r=,X=1,Y=,z=,m=1;"+apcTmuxEnd) + 12*10
 
 // kittyChunk is the number of bytes of PNG in each chunk. Its base64
 // encoding is 4096 bytes, which is the largest chunk that the Kitty protocol
@@ -238,11 +238,13 @@ type kittyImage struct {
 	// Unicode placeholder cells draw.
 	virtual    bool
 	cols, rows int
-	// x and y are where a frame goes in the root frame. base is the frame
-	// that gives the other pixels, or 0 for none. bg is the background
-	// color, as 0xRRGGBBAA, when hasBg is true. replace replaces the pixels
-	// under the frame. gap is the gap of the frame in ms.
+	// x and y are where a frame goes in the root frame. edit is the frame
+	// to edit, or 0 to add a frame. base is the frame that gives the other
+	// pixels, or 0 for none. bg is the background color, as 0xRRGGBBAA,
+	// when hasBg is true. replace replaces the pixels under the frame. gap
+	// is the gap of the frame in ms, or 0 for none.
 	x, y    int
+	edit    int
 	base    int
 	bg      uint32
 	hasBg   bool
@@ -324,6 +326,10 @@ func appendKittyFrame(buf []byte, k kittyImage) []byte {
 		buf = append(buf, ",y="...)
 		buf = strconv.AppendInt(buf, int64(k.y), 10)
 	}
+	if k.edit != 0 {
+		buf = append(buf, ",r="...)
+		buf = strconv.AppendInt(buf, int64(k.edit), 10)
+	}
 	if k.base != 0 {
 		buf = append(buf, ",c="...)
 		buf = strconv.AppendInt(buf, int64(k.base), 10)
@@ -335,6 +341,9 @@ func appendKittyFrame(buf []byte, k kittyImage) []byte {
 	if k.replace {
 		buf = append(buf, ",X=1"...)
 	}
-	buf = append(buf, ",z="...)
-	return strconv.AppendInt(buf, int64(k.gap), 10)
+	if k.gap != 0 {
+		buf = append(buf, ",z="...)
+		buf = strconv.AppendInt(buf, int64(k.gap), 10)
+	}
+	return buf
 }

@@ -102,14 +102,35 @@ Find out with a test, on tmux 3.8, whether tmux gives the answers of the
 outer terminal to the pane when the queries go through the passthrough. Test
 it on one host and over SSH, with one client and with two.
 
-### Test Kitty animation in a terminal
+### Test Kitty animation and streams in a terminal
 
-Source: D28, on 2026-11-14.
+Source: D28 and D29, on 2026-11-14.
 
-The tests of `KittyAnimation` check the escape sequences, not what a
-terminal shows. Play an animation in kitty and in Ghostty 1.4.0, out of tmux
-and in tmux. Find out whether the root frame flickers before its gap is set,
-as Gemini warned.
+The tests of `KittyAnimation` and `KittyStream` check the escape sequences,
+not what a terminal shows. Play an animation and a stream in kitty and in
+Ghostty 1.4.0, out of tmux and in tmux. Find out whether the root frame of
+an animation flickers before its gap is set, as Gemini warned, and whether
+kitty flickers when a stream edits the frame that is not shown.
+
+### Find out why an animation plays faster in Ghostty
+
+Source: the `iv` session, on 2026-11-14.
+
+In Ghostty 1.4.0, a maintainer saw `testdata/lottie/rocket.json` of `iv`,
+40 frames with `z=16`, play faster as a Kitty animation from `Animate` than
+when `iv` draws each frame. The renderer of Ghostty keeps its clock in ms,
+and wakes at most every 8 ms, so it does not explain this. Measure the time
+of one loop in each case.
+
+### Stop the log of kitty about XTSMGRAPHICS
+
+Source: the `iv` session, on 2026-11-14.
+
+kitty 0.50.0 logs "CSI code S has unsupported start modifier" for each
+`Detect`, for the query of the Sixel colors, `CSI ? 1 ; 1 ; 0 S`. It does
+no harm, and `Detect` still works. `Detect` can leave the query out when the
+answer to the Kitty query comes first, but it sends all the queries in one
+write, before any answer.
 
 ## Users
 

@@ -4,6 +4,7 @@
   <a href="#installing" title="Installing">Installing</a> |
   <a href="#using" title="Using">Using</a> |
   <a href="#kitty-animation" title="Kitty Animation">Animation</a> |
+  <a href="#kitty-stream" title="Kitty Stream">Stream</a> |
   <a href="#tmux" title="tmux">tmux</a> |
   <a href="#performance" title="Performance">Performance</a> |
   <a href="#related-projects" title="Related Projects">Related Projects</a> |
@@ -208,6 +209,29 @@ frame, so draw a stream with no end, such as video, as one image for each
 frame. kitty 0.20.0 and later and Ghostty 1.4.0 play animations.
 `Terminal.KittyAnimation` is true when the terminal reports it, which kitty
 0.50.0 and later do, so the program decides.
+
+## Kitty stream
+
+A stream shows pictures of one size as one Kitty image, at the times that the
+program chooses. The terminal stores two frames however many pictures come,
+so a stream suits an animation of any length, such as video:
+
+```go
+s, err := k.Stream(os.Stdout, frames[0])
+if err != nil {
+	return err
+}
+for _, frame := range frames[1:] {
+	// wait until the frame is due, then draw it
+	if err := s.Draw(frame); err != nil {
+		return err
+	}
+}
+```
+
+`Draw` writes the picture into the frame that is not shown, and then shows
+that frame, so the picture changes at once. Each picture must have the size
+of the first one. `Delete` removes the image.
 
 ## Half blocks
 

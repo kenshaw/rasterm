@@ -250,6 +250,9 @@ const (
 	// animation is negative or too large.
 	ErrInvalidLoops Error = "invalid loops"
 	// ErrAnimationEnded is the error when a frame is added to a Kitty
-	// animation after End, Stop or Delete.
+	// animation after End or Delete, or drawn in a Kitty stream after Delete.
 	ErrAnimationEnded Error = "animation ended"
+	// ErrFrameSize is the error when a picture of a Kitty stream does not
+	// have the size of the first one.
+	ErrFrameSize Error = "frame size does not match"
 )
